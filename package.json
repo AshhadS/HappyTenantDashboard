@@ -1,0 +1,16 @@
+{
+  "name": "happy-tenant-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@primevue/nuxt-module": "^4.4.1",
+    "nuxt": "^4.0.0",
+    "primeicons": "^7.0.0"
+  }
+}
