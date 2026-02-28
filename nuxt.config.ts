@@ -3,9 +3,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css', 'primeicons/primeicons.css'],
   primevue: {
     options: {
-      theme: {
-        preset: 'Aura'
-      }
+      unstyled: false
     }
   },
   devtools: {

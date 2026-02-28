@@ -1,8 +1,84 @@
 :root {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --surface-0: #ffffff;
+  --surface-100: #f8fafc;
+  --surface-200: #e2e8f0;
+  --surface-500: #64748b;
+  --surface-700: #334155;
+  --primary-500: #2563eb;
+  --primary-600: #1d4ed8;
+  --primary-100: #dbeafe;
 }
 
 body {
   margin: 0;
   background: #f6f8fb;
+}
+
+.p-component {
+  font-family: inherit;
+}
+
+.p-card {
+  border: 1px solid color-mix(in srgb, var(--surface-200) 65%, white);
+}
+
+.p-inputtext,
+.p-password-input {
+  width: 100%;
+  padding: 0.72rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--surface-200);
+  background: var(--surface-0);
+  color: var(--surface-700);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.p-inputtext::placeholder,
+.p-password-input::placeholder {
+  color: var(--surface-500);
+}
+
+.p-inputtext:enabled:focus,
+.p-password-input:enabled:focus,
+.p-checkbox-input:focus-visible + .p-checkbox-box {
+  outline: 0;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-100) 70%, transparent);
+}
+
+.p-iconfield .p-inputicon {
+  color: var(--surface-500);
+}
+
+.p-button {
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.p-button:not(.p-button-text) {
+  background: var(--primary-500);
+  color: #fff;
+}
+
+.p-button:not(.p-button-text):enabled:hover {
+  background: var(--primary-600);
+}
+
+.p-button.p-button-text {
+  background: transparent;
+  color: var(--primary-600);
+}
+
+.p-checkbox-box {
+  border-radius: 6px;
+  border: 1px solid var(--surface-200);
+}
+
+.p-checkbox-checked .p-checkbox-box {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: #fff;
 }
