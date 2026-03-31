@@ -1,9 +1,17 @@
+import Aura from '@primevue/themes/aura'
+
 export default defineNuxtConfig({
   modules: ['@primevue/nuxt-module'],
   css: ['~/assets/css/main.css', 'primeicons/primeicons.css'],
   primevue: {
     options: {
-      unstyled: false
+      ripple: true,
+      theme: {
+        preset: Aura,
+        options: {
+          darkModeSelector: 'body.dark'
+        }
+      }
     }
   },
   runtimeConfig: {

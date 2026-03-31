@@ -58,7 +58,17 @@
         </Card>
 
         <div class="stats-grid">
-          <Card v-for="stat in statCards" :key="stat.title" :class="['stat-card', stat.accent]">
+          <Card
+            v-for="stat in statCards"
+            :key="stat.title"
+            :class="['stat-card', stat.accent, 'stat-card--interactive']"
+            role="button"
+            tabindex="0"
+            :aria-label="`View ${stat.title} list`"
+            @click="handleStatClick(stat.key)"
+            @keyup.enter.prevent="handleStatClick(stat.key)"
+            @keyup.space.prevent="handleStatClick(stat.key)"
+          >
             <template #title>
               <div class="stat-card__title">
                 <i :class="['pi', stat.icon]"></i>
@@ -119,6 +129,7 @@
             </template>
           </Card>
         </div>
+
       </section>
     </div>
   </main>
@@ -128,6 +139,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
 
+type EntityKey = 'tenant' | 'watchman' | 'support_ticket'
+
 const role = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
@@ -136,6 +149,12 @@ const counts = reactive({
   watchman: 0,
   support_tickets: 0
 })
+const router = useRouter()
+const entityRoutes: Record<EntityKey, string> = {
+  tenant: '/entities/tenants',
+  watchman: '/entities/watchmen',
+  support_ticket: '/entities/support-tickets'
+}
 
 const occupancyGoal = 120
 const watchmanGoal = 20
@@ -167,6 +186,7 @@ const ticketPressure = computed(() => computePercent(counts.support_tickets, tic
 
 const statCards = computed(() => [
   {
+    key: 'tenant' as EntityKey,
     title: 'Tenants',
     icon: 'pi-users',
     value: formatCount(counts.tenant),
@@ -176,6 +196,7 @@ const statCards = computed(() => [
     accent: 'accent-teal'
   },
   {
+    key: 'watchman' as EntityKey,
     title: 'Watchmen',
     icon: 'pi-shield',
     value: formatCount(counts.watchman),
@@ -185,6 +206,7 @@ const statCards = computed(() => [
     accent: 'accent-indigo'
   },
   {
+    key: 'support_ticket' as EntityKey,
     title: 'Support Tickets',
     icon: 'pi-inbox',
     value: formatCount(counts.support_tickets),
@@ -288,6 +310,14 @@ const priorityTickets = computed(() => [
   }
 ])
 
+const handleStatClick = (key: EntityKey) => {
+  const target = entityRoutes[key]
+
+  if (target) {
+    router.push(target)
+  }
+}
+
 const { getTableCount } = useSupabaseAuth()
 
 onMounted(async () => {
@@ -295,10 +325,10 @@ onMounted(async () => {
     return
   }
 
-  const accessToken = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
+  const storedToken = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
   role.value = localStorage.getItem(SUPABASE_USER_ROLE_KEY) || ''
 
-  if (!accessToken) {
+  if (!storedToken) {
     errorMessage.value = 'You are not signed in. Please log in first.'
 
     return
@@ -311,9 +341,9 @@ onMounted(async () => {
   loading.value = true
 
   const [tenantResult, watchmanResult, supportTicketsResult] = await Promise.all([
-    getTableCount('tenant', accessToken),
-    getTableCount('watchman', accessToken),
-    getTableCount('support_ticket', accessToken)
+    getTableCount('tenant', storedToken),
+    getTableCount('watchman', storedToken),
+    getTableCount('support_ticket', storedToken)
   ])
 
   loading.value = false
@@ -484,6 +514,25 @@ onMounted(async () => {
   font-size: 2.5rem;
   font-weight: 700;
   color: inherit;
+}
+
+.stat-card--interactive {
+  cursor: pointer;
+}
+
+.stat-card--interactive :deep(.p-card-body) {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card--interactive:focus-visible :deep(.p-card-body),
+.stat-card--interactive:hover :deep(.p-card-body) {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 35px rgba(15, 23, 42, 0.18);
+}
+
+.stat-card--interactive:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 4px;
 }
 
 .stat-card.small :deep(.p-skeleton) {
