@@ -23,14 +23,23 @@ export const useSupabaseAuth = () => {
   const supabaseUrl = config.public.supabaseUrl
   const supabaseAnonKey = config.public.supabaseAnonKey
 
-  const assertConfig = () => {
+  const getConfigError = () => {
     if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.')
+      return 'Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.'
     }
+
+    return null
   }
 
   const signInWithPassword = async (email: string, password: string) => {
-    assertConfig()
+    const configError = getConfigError()
+
+    if (configError) {
+      return {
+        data: null,
+        error: configError
+      }
+    }
 
     try {
       const response = await $fetch<SupabasePasswordSignInResponse>(`${supabaseUrl}/auth/v1/token`, {
@@ -60,7 +69,13 @@ export const useSupabaseAuth = () => {
   }
 
   const resetPasswordForEmail = async (email: string) => {
-    assertConfig()
+    const configError = getConfigError()
+
+    if (configError) {
+      return {
+        error: configError
+      }
+    }
 
     try {
       await $fetch(`${supabaseUrl}/auth/v1/recover`, {
