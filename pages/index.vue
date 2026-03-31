@@ -10,7 +10,7 @@
         <p class="card-subtitle">Sign in to manage your properties, tenants, and leases.</p>
       </template>
       <template #content>
-        <form class="login-form" @submit.prevent>
+        <form class="login-form" @submit.prevent="onSubmit">
           <IconField>
             <InputIcon class="pi pi-envelope" />
             <InputText
@@ -19,6 +19,7 @@
               type="email"
               placeholder="Email address"
               class="w-full"
+              autocomplete="email"
             />
           </IconField>
 
@@ -31,18 +32,34 @@
               :feedback="false"
               toggle-mask
               fluid
+              :input-props="{ autocomplete: 'current-password' }"
             />
           </IconField>
+
+          <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
 
           <div class="login-actions">
             <div class="remember-me">
               <Checkbox input-id="remember" v-model="rememberMe" binary />
               <label for="remember">Remember me</label>
             </div>
-            <Button variant="text" label="Forgot password?" class="forgot-btn" />
+            <Button
+              type="button"
+              variant="text"
+              label="Forgot password?"
+              class="forgot-btn"
+              @click="navigateTo(forgotPasswordRoute)"
+            />
           </div>
 
-          <Button type="submit" label="Log In" icon="pi pi-sign-in" class="w-full" />
+          <Button
+            type="submit"
+            label="Log In"
+            icon="pi pi-sign-in"
+            class="w-full"
+            :loading="isSubmitting"
+            :disabled="isSubmitting"
+          />
         </form>
       </template>
     </Card>
@@ -55,6 +72,38 @@ import { ref } from 'vue'
 const email = ref('')
 const password = ref('')
 const rememberMe = ref(false)
+const errorMessage = ref('')
+const isSubmitting = ref(false)
+
+const config = useRuntimeConfig()
+const postLoginRoute = config.public.postLoginRoute || '/dashboard'
+const forgotPasswordRoute = config.public.forgotPasswordRoute || '/forgot-password'
+
+const { signInWithPassword } = useSupabaseAuth()
+
+const onSubmit = async () => {
+  errorMessage.value = ''
+
+  if (!email.value || !password.value) {
+    errorMessage.value = 'Please enter your email and password.'
+
+    return
+  }
+
+  isSubmitting.value = true
+
+  const { error } = await signInWithPassword(email.value, password.value)
+
+  isSubmitting.value = false
+
+  if (error) {
+    errorMessage.value = error
+
+    return
+  }
+
+  await navigateTo(postLoginRoute)
+}
 </script>
 
 <style scoped>
