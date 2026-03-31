@@ -20,7 +20,7 @@ body {
 }
 
 .p-card {
-  border: 1px solid color-mix(in srgb, var(--surface-200) 65%, white);
+  /* border: 1px solid color-mix(in srgb, var(--surface-200) 65%, white); */
 }
 
 .p-inputtext,
