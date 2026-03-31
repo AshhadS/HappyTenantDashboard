@@ -85,6 +85,12 @@
                     {{ formatCell(data[column.field]) }}
                   </template>
                 </Column>
+
+                <Column header="Actions">
+                  <template #body="{ data }">
+                    <Button label="View" icon="pi pi-search" size="small" severity="secondary" text @click="openRecordDetail(data)" />
+                  </template>
+                </Column>
               </DataTable>
 
               <Message v-else severity="info" :closable="false">No records exist yet. Try refreshing later.</Message>
@@ -92,6 +98,22 @@
           </div>
         </template>
       </Card>
+
+      <Dialog
+        v-model:visible="detailDialogVisible"
+        modal
+        :header="detailDialogTitle"
+        class="detail-dialog"
+        :style="{ width: 'min(520px, 92vw)' }"
+      >
+        <div v-if="detailEntries.length" class="detail-grid">
+          <div v-for="item in detailEntries" :key="item.key" class="detail-row">
+            <span class="detail-label">{{ item.label }}</span>
+            <span class="detail-value">{{ item.value }}</span>
+          </div>
+        </div>
+        <Message v-else severity="info" :closable="false">No details available.</Message>
+      </Dialog>
     </div>
   </main>
 </template>
@@ -155,6 +177,8 @@ const errorMessage = ref('')
 const supabaseAccessToken = ref('')
 const rows = ref<Record<string, unknown>[]>([])
 const lastFetched = ref<Date | null>(null)
+const detailDialogVisible = ref(false)
+const detailRecord = ref<Record<string, unknown> | null>(null)
 
 const supabaseUrl = runtimeConfig.public.supabaseUrl
 const supabaseAnonKey = runtimeConfig.public.supabaseAnonKey
@@ -201,6 +225,14 @@ const lastSyncedText = computed(() => {
   return lastFetched.value.toLocaleString()
 })
 
+const detailDialogTitle = computed(() => {
+  if (!detailRecord.value || !activeEntity.value) {
+    return 'Record details'
+  }
+
+  return `${activeEntity.value.label} Details`
+})
+
 const formatCell = (value: unknown) => {
   if (value === null || value === undefined) {
     return '--'
@@ -217,6 +249,18 @@ const prettifyField = (field: string) =>
   field
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (match) => match.toUpperCase())
+
+const detailEntries = computed(() => {
+  if (!detailRecord.value) {
+    return []
+  }
+
+  return Object.entries(detailRecord.value).map(([key, value]) => ({
+    key,
+    label: prettifyField(key),
+    value: formatCell(value)
+  }))
+})
 
 const loadRows = async () => {
   if (!activeEntity.value) {
@@ -267,6 +311,11 @@ const loadRows = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const openRecordDetail = (record: Record<string, unknown>) => {
+  detailRecord.value = record
+  detailDialogVisible.value = true
 }
 
 const hydrateSession = () => {
@@ -407,6 +456,34 @@ watch(
   gap: 1rem;
   font-weight: 600;
   color: #0f172a;
+}
+
+.detail-dialog :deep(.p-dialog-header) {
+  font-weight: 700;
+}
+
+.detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.detail-value {
+  color: #475569;
+  text-align: right;
 }
 
 @media (max-width: 640px) {
