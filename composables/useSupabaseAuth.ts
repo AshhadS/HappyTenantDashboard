@@ -10,12 +10,27 @@ interface SupabasePasswordSignInResponse {
   user?: {
     id: string
     email?: string
+    role?: string
+    app_metadata?: {
+      role?: string
+    }
+    user_metadata?: {
+      role?: string
+    }
   }
 }
 
-const buildHeaders = (anonKey: string) => ({
+interface SupabaseTableCountResult {
+  count: number | null
+  error: string | null
+}
+
+export const SUPABASE_ACCESS_TOKEN_KEY = 'supabase.access_token'
+export const SUPABASE_USER_ROLE_KEY = 'supabase.user.role'
+
+const buildHeaders = (anonKey: string, accessToken?: string) => ({
   apikey: anonKey,
-  Authorization: `Bearer ${anonKey}`
+  Authorization: `Bearer ${accessToken || anonKey}`
 })
 
 export const useSupabaseAuth = () => {
@@ -98,8 +113,49 @@ export const useSupabaseAuth = () => {
     }
   }
 
+  const getTableCount = async (tableName: string, accessToken: string): Promise<SupabaseTableCountResult> => {
+    const configError = getConfigError()
+
+    if (configError) {
+      return {
+        count: null,
+        error: configError
+      }
+    }
+
+    try {
+      const response = await $fetch.raw(`${supabaseUrl}/rest/v1/${tableName}`, {
+        method: 'GET',
+        query: {
+          select: 'id'
+        },
+        headers: {
+          ...buildHeaders(supabaseAnonKey, accessToken),
+          Prefer: 'count=exact',
+          Range: '0-0'
+        }
+      })
+
+      const contentRange = response.headers.get('content-range') || ''
+      const total = Number(contentRange.split('/')[1])
+
+      return {
+        count: Number.isFinite(total) ? total : 0,
+        error: null
+      }
+    } catch (error) {
+      const authError = error as { data?: SupabaseAuthError }
+
+      return {
+        count: null,
+        error: authError?.data?.message ?? authError?.data?.error_description ?? `Unable to load ${tableName} count.`
+      }
+    }
+  }
+
   return {
     signInWithPassword,
-    resetPasswordForEmail
+    resetPasswordForEmail,
+    getTableCount
   }
 }

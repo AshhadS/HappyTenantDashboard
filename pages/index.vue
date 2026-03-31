@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
 
 const email = ref('')
 const password = ref('')
@@ -92,7 +93,7 @@ const onSubmit = async () => {
 
   isSubmitting.value = true
 
-  const { error } = await signInWithPassword(email.value, password.value)
+  const { data, error } = await signInWithPassword(email.value, password.value)
 
   isSubmitting.value = false
 
@@ -100,6 +101,13 @@ const onSubmit = async () => {
     errorMessage.value = error
 
     return
+  }
+
+  if (process.client && data?.access_token) {
+    const role = data.user?.role || data.user?.app_metadata?.role || data.user?.user_metadata?.role || 'user'
+
+    localStorage.setItem(SUPABASE_ACCESS_TOKEN_KEY, data.access_token)
+    localStorage.setItem(SUPABASE_USER_ROLE_KEY, role)
   }
 
   await navigateTo(postLoginRoute)
