@@ -112,6 +112,11 @@ html {
   min-height: 100vh;
 }
 
+.app-shell.no-sidebar .main-region,
+.main-region.full-width {
+  margin-left: 0;
+}
+
 @media (max-width: 960px) {
   .side-nav {
     position: static;
