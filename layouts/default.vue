@@ -27,6 +27,10 @@
           <span>Support Tickets</span>
         </NuxtLink>
       </nav>
+
+      <div class="nav-footer">
+        <Button label="Logout" icon="pi pi-sign-out" severity="contrast" class="logout-button" @click="handleLogout" />
+      </div>
     </aside>
 
     <main class="main-region">
@@ -34,3 +38,16 @@
     </main>
   </div>
 </template>
+
+<script setup lang="ts">
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+
+const handleLogout = () => {
+  if (process.client) {
+    localStorage.removeItem(SUPABASE_ACCESS_TOKEN_KEY)
+    localStorage.removeItem(SUPABASE_USER_ROLE_KEY)
+  }
+
+  navigateTo('/login')
+}
+</script>

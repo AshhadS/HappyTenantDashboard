@@ -71,6 +71,14 @@ html {
   gap: 0.5rem;
 }
 
+.nav-footer {
+  margin-top: auto;
+}
+
+.logout-button {
+  width: 100%;
+}
+
 .nav-link {
   display: flex;
   align-items: center;
@@ -117,6 +125,15 @@ html {
     flex-direction: row;
     flex-wrap: wrap;
     gap: 0.35rem;
+  }
+
+  .nav-footer {
+    margin-top: 0;
+    width: auto;
+  }
+
+  .logout-button {
+    min-width: 120px;
   }
 
   .nav-link {
