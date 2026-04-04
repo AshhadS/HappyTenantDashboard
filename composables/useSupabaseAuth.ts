@@ -25,8 +25,19 @@ interface SupabaseTableCountResult {
   error: string | null
 }
 
+interface SupabaseUserProfileResult {
+  profile: {
+    id: string
+    email?: string
+    full_name?: string
+    role?: string
+  } | null
+  error: string | null
+}
+
 export const SUPABASE_ACCESS_TOKEN_KEY = 'supabase.access_token'
 export const SUPABASE_USER_ROLE_KEY = 'supabase.user.role'
+export const SUPABASE_USER_ID_KEY = 'supabase.user.id'
 
 const buildHeaders = (anonKey: string, accessToken?: string) => ({
   apikey: anonKey,
@@ -153,9 +164,65 @@ export const useSupabaseAuth = () => {
     }
   }
 
+  const fetchUserProfile = async (userId: string, accessToken: string): Promise<SupabaseUserProfileResult> => {
+    const configError = getConfigError()
+
+    if (configError) {
+      return {
+        profile: null,
+        error: configError
+      }
+    }
+
+    if (!userId) {
+      return {
+        profile: null,
+        error: 'Missing authenticated user id.'
+      }
+    }
+
+    if (!accessToken) {
+      return {
+        profile: null,
+        error: 'Missing Supabase access token.'
+      }
+    }
+
+    try {
+      const data = await $fetch<{ id: string; email?: string; full_name?: string; role?: string }[]>(
+        `${supabaseUrl}/rest/v1/users`,
+        {
+          method: 'GET',
+          query: {
+            select: 'id,email,full_name,role',
+            id: `eq.${userId}`,
+            limit: 1
+          },
+          headers: {
+            ...buildHeaders(supabaseAnonKey, accessToken),
+            Range: '0-0'
+          }
+        }
+      )
+
+      return {
+        profile: data?.[0] ?? null,
+        error: null
+      }
+    } catch (error) {
+      const authError = error as { data?: SupabaseAuthError }
+
+      return {
+        profile: null,
+        error: authError?.data?.message ?? authError?.data?.error_description ?? 'Unable to load user profile.'
+      }
+    }
+  }
+
   return {
     signInWithPassword,
     resetPasswordForEmail,
-    getTableCount
+    getTableCount,
+    fetchUserProfile
   }
 }

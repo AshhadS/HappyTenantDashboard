@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY, SUPABASE_USER_ID_KEY } from '~/composables/useSupabaseAuth'
 
 const email = ref('')
 const password = ref('')
@@ -81,7 +81,9 @@ const config = useRuntimeConfig()
 const postLoginRoute = config.public.postLoginRoute || '/dashboard'
 const forgotPasswordRoute = config.public.forgotPasswordRoute || '/forgot-password'
 
-const { signInWithPassword } = useSupabaseAuth()
+const { signInWithPassword, fetchUserProfile } = useSupabaseAuth()
+
+const canAccessApp = (role: string) => role === 'authenticated' || role === 'LANDLORD'
 
 const onSubmit = async () => {
   errorMessage.value = ''
@@ -105,11 +107,25 @@ const onSubmit = async () => {
   }
 
   if (process.client && data?.access_token) {
-    const role = data.user?.role || data.user?.app_metadata?.role || data.user?.user_metadata?.role || 'user'
+    const authUserId = data.user?.id || ''
+    let resolvedRole = data.user?.app_metadata?.role || data.user?.user_metadata?.role || data.user?.role || 'authenticated'
+
+    if (authUserId) {
+      const { profile } = await fetchUserProfile(authUserId, data.access_token)
+
+      if (profile?.role) {
+        resolvedRole = profile.role
+      }
+    }
 
     localStorage.setItem(SUPABASE_ACCESS_TOKEN_KEY, data.access_token)
-    localStorage.setItem(SUPABASE_USER_ROLE_KEY, role)
-    authState.value = role === 'authenticated'
+
+    if (authUserId) {
+      localStorage.setItem(SUPABASE_USER_ID_KEY, authUserId)
+    }
+
+    localStorage.setItem(SUPABASE_USER_ROLE_KEY, resolvedRole)
+    authState.value = canAccessApp(resolvedRole)
   }
 
   await navigateTo(postLoginRoute)

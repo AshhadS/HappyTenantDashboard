@@ -54,7 +54,7 @@
               <DataTable
                 v-if="rows.length"
                 :value="rows"
-                dataKey="id"
+                :dataKey="tableDataKey"
                 size="small"
                 stripedRows
                 rowHover
@@ -120,50 +120,89 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ID_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
 
 type EntitySlug = 'tenants' | 'watchmen' | 'support-tickets'
 
 interface EntityDefinition {
   label: string
   table: string
+  rowKey: string
   description: string
   columns: { field: string; header: string }[]
+  landlordView?: {
+    source: string
+    rowKey: string
+    columns: { field: string; header: string }[]
+  }
 }
 
 const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
   tenants: {
     label: 'Tenants',
     table: 'tenant',
+    rowKey: 'id',
     description: 'Track everyone who currently lives on the property along with their units and contacts.',
     columns: [
       { field: 'full_name', header: 'Name' },
       { field: 'unit_number', header: 'Unit' },
       { field: 'phone', header: 'Phone' },
       { field: 'status', header: 'Status' }
-    ]
+    ],
+    landlordView: {
+      source: 'landlord_tenants_view',
+      rowKey: 'tenant_id',
+      columns: [
+        { field: 'tenant_name', header: 'Tenant' },
+        { field: 'building_name', header: 'Building' },
+        { field: 'unit_number', header: 'Unit' },
+        { field: 'phone', header: 'Phone' }
+      ]
+    }
   },
   watchmen: {
     label: 'Watchmen',
     table: 'watchman',
+    rowKey: 'id',
     description: 'Stay on top of guard schedules, shift coverage, and their contact information.',
     columns: [
       { field: 'full_name', header: 'Name' },
       { field: 'shift', header: 'Shift' },
       { field: 'phone', header: 'Phone' },
       { field: 'status', header: 'Status' }
-    ]
+    ],
+    landlordView: {
+      source: 'landlord_watchmen_view',
+      rowKey: 'watchman_id',
+      columns: [
+        { field: 'building_name', header: 'Building' },
+        { field: 'building_id', header: 'Building ID' },
+        { field: 'watchman_id', header: 'Watchman ID' },
+        { field: 'watchman_user_id', header: 'Watchman User' }
+      ]
+    }
   },
   'support-tickets': {
     label: 'Support Tickets',
     table: 'support_ticket',
+    rowKey: 'id',
     description: 'Review every resident request and make sure the right team is following up.',
     columns: [
       { field: 'subject', header: 'Subject' },
       { field: 'status', header: 'Status' },
       { field: 'priority', header: 'Priority' },
       { field: 'created_at', header: 'Created' }
-    ]
+    ],
+    landlordView: {
+      source: 'landlord_support_tickets_view',
+      rowKey: 'support_ticket_id',
+      columns: [
+        { field: 'title', header: 'Title' },
+        { field: 'status', header: 'Status' },
+        { field: 'tenant_name', header: 'Tenant' },
+        { field: 'building_name', header: 'Building' }
+      ]
+    }
   }
 }
 
@@ -175,6 +214,7 @@ const role = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const supabaseAccessToken = ref('')
+const supabaseUserId = ref('')
 const rows = ref<Record<string, unknown>[]>([])
 const lastFetched = ref<Date | null>(null)
 const detailDialogVisible = ref(false)
@@ -194,13 +234,27 @@ const entitySlug = computed<EntitySlug | null>(() => {
 })
 
 const activeEntity = computed(() => (entitySlug.value ? entityDefinitions[entitySlug.value] : null))
-const isAllowed = computed(() => role.value === 'authenticated')
+const isLandlord = computed(() => role.value === 'LANDLORD')
+const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value)
+
+const columnHints = computed(() => {
+  if (!activeEntity.value) {
+    return []
+  }
+
+  if (isLandlord.value && activeEntity.value.landlordView) {
+    return activeEntity.value.landlordView.columns
+  }
+
+  return activeEntity.value.columns
+})
+
 const visibleColumns = computed(() => {
   if (!activeEntity.value) {
     return []
   }
 
-  const hints = activeEntity.value.columns
+  const hints = columnHints.value
 
   if (!rows.value.length) {
     return hints.slice(0, 4)
@@ -215,6 +269,41 @@ const visibleColumns = computed(() => {
   const fallbackFields = Object.keys(rows.value[0]).filter((field) => field !== 'id').slice(0, 4)
 
   return fallbackFields.map((field) => ({ field, header: prettifyField(field) }))
+})
+
+const tableDataKey = computed(() => {
+  if (!activeEntity.value) {
+    return 'id'
+  }
+
+  if (isLandlord.value && activeEntity.value.landlordView) {
+    return activeEntity.value.landlordView.rowKey
+  }
+
+  return activeEntity.value.rowKey
+})
+
+const activeSource = computed(() => {
+  if (!activeEntity.value) {
+    return null
+  }
+
+  if (isLandlord.value && activeEntity.value.landlordView) {
+    return {
+      endpoint: activeEntity.value.landlordView.source,
+      query: {
+        select: '*',
+        landlord_user_id: `eq.${supabaseUserId.value}`
+      }
+    }
+  }
+
+  return {
+    endpoint: activeEntity.value.table,
+    query: {
+      select: '*'
+    }
+  }
 })
 
 const lastSyncedText = computed(() => {
@@ -268,6 +357,11 @@ const loadRows = async () => {
     return
   }
 
+  if (isLandlord.value && !supabaseUserId.value) {
+    errorMessage.value = 'Unable to determine landlord scope. Please sign in again.'
+    return
+  }
+
   if (!supabaseUrl || !supabaseAnonKey) {
     errorMessage.value = 'Supabase configuration is missing.'
     return
@@ -286,15 +380,20 @@ const loadRows = async () => {
     return
   }
 
+  const source = activeSource.value
+
+  if (!source) {
+    errorMessage.value = 'Unknown list.'
+    return
+  }
+
   loading.value = true
   errorMessage.value = ''
 
   try {
-    const data = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/${activeEntity.value.table}`, {
+    const data = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/${source.endpoint}`, {
       method: 'GET',
-      query: {
-        select: '*'
-      },
+      query: source.query,
       headers: {
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${supabaseAccessToken.value}`,
@@ -325,6 +424,7 @@ const hydrateSession = () => {
 
   supabaseAccessToken.value = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY) || ''
   role.value = localStorage.getItem(SUPABASE_USER_ROLE_KEY) || ''
+  supabaseUserId.value = localStorage.getItem(SUPABASE_USER_ID_KEY) || ''
 }
 
 onMounted(async () => {
@@ -349,7 +449,7 @@ watch(
 )
 
 watch(
-  () => [supabaseAccessToken.value, isAllowed.value],
+  () => [supabaseAccessToken.value, isAllowed.value, supabaseUserId.value],
   async () => {
     if (supabaseAccessToken.value && isAllowed.value && activeEntity.value) {
       await loadRows()

@@ -41,11 +41,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
-import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY, SUPABASE_USER_ID_KEY } from '~/composables/useSupabaseAuth'
 
 const authState = useState<boolean>('auth-state', () => false)
 const isAuthenticated = computed(() => authState.value)
 const route = useRoute()
+
+const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD'
 
 const syncAuthState = () => {
   if (!process.client) {
@@ -54,7 +56,7 @@ const syncAuthState = () => {
 
   const token = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
   const role = localStorage.getItem(SUPABASE_USER_ROLE_KEY)
-  authState.value = Boolean(token && role === 'authenticated')
+  authState.value = Boolean(token && isRoleAllowed(role))
 
   if (!authState.value && route.path !== '/login') {
     navigateTo('/login')
@@ -65,6 +67,7 @@ const handleLogout = () => {
   if (process.client) {
     localStorage.removeItem(SUPABASE_ACCESS_TOKEN_KEY)
     localStorage.removeItem(SUPABASE_USER_ROLE_KEY)
+    localStorage.removeItem(SUPABASE_USER_ID_KEY)
   }
 
   authState.value = false
@@ -75,6 +78,7 @@ const storageListener = (event: StorageEvent) => {
   if (
     event.key === SUPABASE_ACCESS_TOKEN_KEY ||
     event.key === SUPABASE_USER_ROLE_KEY ||
+    event.key === SUPABASE_USER_ID_KEY ||
     event.key === null
   ) {
     syncAuthState()
