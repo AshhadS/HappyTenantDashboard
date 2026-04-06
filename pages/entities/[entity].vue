@@ -147,6 +147,7 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
       { field: 'full_name', header: 'Name' },
       { field: 'unit_number', header: 'Unit' },
       { field: 'phone', header: 'Phone' },
+      { field: 'watchman_display', header: 'Watchman' },
       { field: 'status', header: 'Status' }
     ],
     landlordView: {
@@ -156,7 +157,8 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
         { field: 'tenant_name', header: 'Tenant' },
         { field: 'building_name', header: 'Building' },
         { field: 'unit_number', header: 'Unit' },
-        { field: 'phone', header: 'Phone' }
+        { field: 'phone', header: 'Phone' },
+        { field: 'watchman_display', header: 'Watchman' }
       ]
     }
   },
@@ -166,6 +168,7 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
     rowKey: 'id',
     description: 'Stay on top of guard schedules, shift coverage, and their contact information.',
     columns: [
+      { field: 'watchman_name', header: 'Watchman Name' },
       { field: 'full_name', header: 'Name' },
       { field: 'shift', header: 'Shift' },
       { field: 'phone', header: 'Phone' },
@@ -175,10 +178,9 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
       source: 'landlord_watchmen_view',
       rowKey: 'watchman_id',
       columns: [
+        { field: 'watchman_name', header: 'Watchman Name' },
         { field: 'building_name', header: 'Building' },
-        { field: 'building_id', header: 'Building ID' },
-        { field: 'watchman_id', header: 'Watchman ID' },
-        { field: 'watchman_user_id', header: 'Watchman User' }
+        { field: 'building_id', header: 'Building ID' }
       ]
     }
   },
@@ -200,7 +202,8 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
         { field: 'title', header: 'Title' },
         { field: 'status', header: 'Status' },
         { field: 'tenant_name', header: 'Tenant' },
-        { field: 'building_name', header: 'Building' }
+        { field: 'building_name', header: 'Building' },
+        { field: 'watchman_name', header: 'Watchman' }
       ]
     }
   }
@@ -271,6 +274,16 @@ const visibleColumns = computed(() => {
   return fallbackFields.map((field) => ({ field, header: prettifyField(field) }))
 })
 
+const selectClause = computed(() => {
+  const segments = ['*']
+
+  if (entitySlug.value === 'tenants' && !isLandlord.value) {
+    segments.push('watchman:watchman_id(full_name)')
+  }
+
+  return segments.join(',')
+})
+
 const tableDataKey = computed(() => {
   if (!activeEntity.value) {
     return 'id'
@@ -292,7 +305,7 @@ const activeSource = computed(() => {
     return {
       endpoint: activeEntity.value.landlordView.source,
       query: {
-        select: '*',
+        select: selectClause.value,
         landlord_user_id: `eq.${supabaseUserId.value}`
       }
     }
@@ -301,7 +314,7 @@ const activeSource = computed(() => {
   return {
     endpoint: activeEntity.value.table,
     query: {
-      select: '*'
+      select: selectClause.value
     }
   }
 })
@@ -351,6 +364,114 @@ const detailEntries = computed(() => {
   }))
 })
 
+const normalizeRows = (data: Record<string, unknown>[]) => {
+  if (!activeEntity.value || entitySlug.value !== 'tenants') {
+    return data
+  }
+
+  return data.map((row) => {
+    const normalized = { ...row }
+    const watchmanRelation = (normalized as { watchman?: { full_name?: string } }).watchman
+    const watchmanName =
+      (normalized as { watchman_display?: unknown }).watchman_display ||
+      (normalized as { watchman_name?: unknown }).watchman_name ||
+      watchmanRelation?.full_name ||
+      (normalized as { watchman_id?: unknown }).watchman_id ||
+      '--'
+
+    normalized.watchman_display = watchmanName
+
+    if ('watchman' in normalized) {
+      delete (normalized as Record<string, unknown>).watchman
+    }
+
+    return normalized
+  })
+}
+
+const buildInFilter = (values: (string | number)[]) => {
+  const tokens = values.map((value) => {
+    if (typeof value === 'number') {
+      return String(value)
+    }
+
+    return `"${value}"`
+  })
+
+  return `in.(${tokens.join(',')})`
+}
+
+const fetchWatchmanNames = async (ids: (string | number)[]) => {
+  if (!ids.length) {
+    return {}
+  }
+
+  try {
+    const records = await $fetch<{ id: string | number; full_name?: string }[]>(`${supabaseUrl}/rest/v1/watchman`, {
+      method: 'GET',
+      query: {
+        select: 'id,full_name',
+        id: buildInFilter(ids)
+      },
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAccessToken.value}`,
+        Range: '0-99',
+        'Range-Unit': 'items'
+      }
+    })
+
+    return (records || []).reduce<Record<string | number, string>>((map, item) => {
+      if (item.id) {
+        map[item.id] = item.full_name || ''
+      }
+
+      return map
+    }, {})
+  } catch (error) {
+    console.warn('Unable to fetch watchman names', error)
+
+    return {}
+  }
+}
+
+const enrichLandlordTenantRows = async (data: Record<string, unknown>[]) => {
+  if (!isLandlord.value || !data.length) {
+    return data
+  }
+
+  const watchmanIds = Array.from(
+    new Set(
+      data
+        .map((row) => (row as { watchman_id?: string | number }).watchman_id)
+        .filter((value): value is string | number => Boolean(value))
+    )
+  )
+
+  if (!watchmanIds.length) {
+    return data
+  }
+
+  const watchmanMap = await fetchWatchmanNames(watchmanIds)
+
+  return data.map((row) => {
+    const watchmanId = (row as { watchman_id?: string | number }).watchman_id
+
+    if (watchmanId && !('watchman_name' in row)) {
+      const name = watchmanMap[watchmanId]
+
+      if (name) {
+        return {
+          ...row,
+          watchman_name: name
+        }
+      }
+    }
+
+    return row
+  })
+}
+
 const loadRows = async () => {
   if (!activeEntity.value) {
     errorMessage.value = 'Unknown list.'
@@ -391,7 +512,7 @@ const loadRows = async () => {
   errorMessage.value = ''
 
   try {
-    const data = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/${source.endpoint}`, {
+    let data = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/${source.endpoint}`, {
       method: 'GET',
       query: source.query,
       headers: {
@@ -402,7 +523,13 @@ const loadRows = async () => {
       }
     })
 
-    rows.value = data || []
+    data = data || []
+
+    if (entitySlug.value === 'tenants' && isLandlord.value) {
+      data = await enrichLandlordTenantRows(data)
+    }
+
+    rows.value = normalizeRows(data)
     lastFetched.value = new Date()
   } catch (error) {
     const err = error as { data?: { message?: string; error_description?: string } }

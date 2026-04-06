@@ -2,7 +2,7 @@
   <main class="dashboard-page">
     <div class="page-shell">
       <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
-      <Message v-else-if="role !== 'authenticated'" severity="warn" :closable="false">
+      <Message v-else-if="!['authenticated', 'LANDLORD'].includes(role)" severity="warn" :closable="false">
         You are signed in as <strong>{{ role || 'user' }}</strong>. Dashboard cards are available for super admins only.
       </Message>
 
@@ -334,7 +334,7 @@ onMounted(async () => {
     return
   }
 
-  if (role.value !== 'authenticated') {
+  if (!['authenticated', 'LANDLORD'].includes(role.value)) {
     return
   }
 
