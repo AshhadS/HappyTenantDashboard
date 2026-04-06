@@ -55,6 +55,7 @@
                 v-if="rows.length"
                 :value="rows"
                 :dataKey="tableDataKey"
+                :rowClass="getRowClass"
                 size="small"
                 stripedRows
                 rowHover
@@ -89,6 +90,16 @@
                     >
                       {{ formatCell(data[column.field], column.field) }}
                     </span>
+                    <Tag
+                      v-else-if="isSupportTicketView && column.field === 'status'"
+                      :value="formatCell(data[column.field], column.field)"
+                      :severity="isTicketOverdue(data) ? 'danger' : 'info'"
+                      rounded
+                      class="status-tag"
+                    />
+                    <template v-if="isSupportTicketView && column.field === 'status' && isTicketOverdue(data)">
+                      <small class="overdue-delay">{{ getDelayText(data) }}</small>
+                    </template>
                     <template v-else>
                       {{ formatCell(data[column.field], column.field) }}
                     </template>
@@ -298,6 +309,7 @@ const activeEntity = computed(() => (entitySlug.value ? entityDefinitions[entity
 const isLandlord = computed(() => role.value === 'LANDLORD')
 const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value)
 const isSupportTicketView = computed(() => entitySlug.value === 'support-tickets')
+const resolvedStatuses = ['COMPLETED', 'FIXED', 'RESOLVED', 'CLOSED', 'VERIFIED']
 
 const columnHints = computed(() => {
   if (!activeEntity.value) {
@@ -532,6 +544,82 @@ const getUpdatedTooltip = (record: Record<string, unknown>) => {
   }
 
   return `Updated ${formatCell(updated, 'updated_at')}`
+}
+
+const isTicketOverdue = (record: Record<string, unknown>) => {
+  if (!isSupportTicketView.value) {
+    return false
+  }
+
+  const status = String((record as { status?: unknown }).status || '').toUpperCase()
+
+  if (resolvedStatuses.includes(status)) {
+    return false
+  }
+
+  const created = (record as { created_at?: unknown }).created_at
+
+  if (!created || typeof created !== 'string') {
+    return false
+  }
+
+  const createdDate = new Date(created)
+
+  if (Number.isNaN(createdDate.getTime())) {
+    return false
+  }
+
+  const ageMs = Date.now() - createdDate.getTime()
+  const seventyTwoHoursMs = 72 * 60 * 60 * 1000
+
+  return ageMs > seventyTwoHoursMs
+}
+
+const getRowClass = (record: Record<string, unknown>) => {
+  if (isTicketOverdue(record)) {
+    return 'overdue-row'
+  }
+
+  return ''
+}
+
+const formatDuration = (ms: number) => {
+  const totalMinutes = Math.floor(ms / (60 * 1000))
+  const days = Math.floor(totalMinutes / (60 * 24))
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
+  const minutes = totalMinutes % 60
+
+  if (days > 0) {
+    return `${days}d ${hours}h`
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+
+  return `${minutes}m`
+}
+
+const getDelayText = (record: Record<string, unknown>) => {
+  if (!isTicketOverdue(record)) {
+    return ''
+  }
+
+  const created = (record as { created_at?: string }).created_at
+
+  if (!created) {
+    return ''
+  }
+
+  const createdDate = new Date(created)
+
+  if (Number.isNaN(createdDate.getTime())) {
+    return ''
+  }
+
+  const delayMs = Date.now() - createdDate.getTime()
+
+  return `${formatDuration(delayMs)} overdue`
 }
 
 const normalizeTenantRows = (data: Record<string, unknown>[]) =>
@@ -1153,6 +1241,26 @@ watch(
 .created-cell {
   cursor: help;
   border-bottom: 1px dotted rgba(15, 23, 42, 0.4);
+}
+
+.status-tag {
+  font-size: 0.85rem;
+}
+
+.overdue-delay {
+  display: block;
+  margin-top: 0.15rem;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.entity-table :deep(.overdue-row) {
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.entity-table :deep(.overdue-row:hover) {
+  background: rgba(248, 113, 113, 0.18);
 }
 
 @media (max-width: 640px) {
