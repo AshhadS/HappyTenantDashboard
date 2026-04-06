@@ -83,22 +83,19 @@
                   sortable
                 >
                   <template #body="{ data }">
-                    <span
-                      v-if="column.field === 'created_at'"
-                      class="created-cell"
-                      :title="getUpdatedTooltip(data)"
-                    >
-                      {{ formatCell(data[column.field], column.field) }}
-                    </span>
-                    <Tag
-                      v-else-if="isSupportTicketView && column.field === 'status'"
-                      :value="formatCell(data[column.field], column.field)"
-                      :severity="isTicketOverdue(data) ? 'danger' : 'info'"
-                      rounded
-                      class="status-tag"
-                    />
-                    <template v-if="isSupportTicketView && column.field === 'status' && isTicketOverdue(data)">
-                      <small class="overdue-delay">{{ getDelayText(data) }}</small>
+                    <template v-if="column.field === 'created_at'">
+                      <span class="created-cell" :title="getUpdatedTooltip(data)">
+                        {{ formatCell(data[column.field], column.field) }}
+                      </span>
+                    </template>
+                    <template v-else-if="isSupportTicketView && column.field === 'status'">
+                      <Tag
+                        :value="formatCell(data[column.field], column.field)"
+                        :severity="isTicketOverdue(data) ? 'danger' : 'info'"
+                        rounded
+                        class="status-tag"
+                      />
+                      <small v-if="isTicketOverdue(data)" class="overdue-delay">{{ getDelayText(data) }}</small>
                     </template>
                     <template v-else>
                       {{ formatCell(data[column.field], column.field) }}
@@ -137,13 +134,76 @@
         class="detail-dialog"
         :style="{ width: 'min(520px, 92vw)' }"
       >
-        <div v-if="detailEntries.length" class="detail-grid">
-          <div v-for="item in detailEntries" :key="item.key" class="detail-row">
-            <span class="detail-label">{{ item.label }}</span>
-            <span class="detail-value">{{ item.value }}</span>
+        <template v-if="isSupportTicketView && ticketDetail">
+          <div class="ticket-dialog">
+            <div class="ticket-dialog__header">
+              <div>
+                <Tag
+                  :value="ticketDetail.status"
+                  :severity="isTicketOverdue(detailRecord || {}) ? 'danger' : 'info'"
+                  rounded
+                />
+                <Tag
+                  v-if="ticketDetail.priority && ticketDetail.priority !== '--'"
+                  :value="`Priority: ${ticketDetail.priority}`"
+                  severity="warning"
+                  rounded
+                  class="ticket-priority-tag"
+                />
+                <h3>{{ ticketDetail.title }}</h3>
+                <p>{{ ticketDetail.subject }}</p>
+              </div>
+              <div class="ticket-dialog__meta">
+                <div>
+                  <span class="meta-label">Ticket ID</span>
+                  <strong>{{ ticketDetail.ticketId }}</strong>
+                </div>
+                <div>
+                  <span class="meta-label">Created</span>
+                  <strong>{{ ticketDetail.created }}</strong>
+                </div>
+                <div>
+                  <span class="meta-label">Updated</span>
+                  <strong>{{ ticketDetail.updated }}</strong>
+                </div>
+                <div v-if="ticketDetail.delay">
+                  <span class="meta-label">Delay</span>
+                  <strong class="delay-chip">{{ ticketDetail.delay }}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="ticket-dialog__body">
+              <p class="ticket-dialog__description">
+                {{ ticketDetail.description }}
+              </p>
+
+              <div class="ticket-dialog__grid">
+                <div>
+                  <span class="meta-label">Tenant</span>
+                  <strong>{{ ticketDetail.tenant }}</strong>
+                </div>
+                <div>
+                  <span class="meta-label">Watchman</span>
+                  <strong>{{ ticketDetail.watchman }}</strong>
+                </div>
+                <div v-if="ticketDetail.building && ticketDetail.building !== '--'">
+                  <span class="meta-label">Building</span>
+                  <strong>{{ ticketDetail.building }}</strong>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <Message v-else severity="info" :closable="false">No details available.</Message>
+        </template>
+        <template v-else>
+          <div v-if="detailEntries.length" class="detail-grid">
+            <div v-for="item in detailEntries" :key="item.key" class="detail-row">
+              <span class="detail-label">{{ item.label }}</span>
+              <span class="detail-value">{{ item.value }}</span>
+            </div>
+          </div>
+          <Message v-else severity="info" :closable="false">No details available.</Message>
+        </template>
       </Dialog>
 
       <Dialog
@@ -250,7 +310,6 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
       { field: 'title', header: 'Title' },
       { field: 'subject', header: 'Subject' },
       { field: 'tenant_display', header: 'Tenant' },
-      { field: 'watchman_display', header: 'Watchman' },
       { field: 'status', header: 'Status' },
       { field: 'priority', header: 'Priority' },
       { field: 'created_at', header: 'Created' }
@@ -261,7 +320,6 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
       columns: [
         { field: 'title', header: 'Title' },
         { field: 'tenant_display', header: 'Tenant' },
-        { field: 'watchman_display', header: 'Watchman' },
         { field: 'status', header: 'Status' },
         { field: 'building_name', header: 'Building' },
         { field: 'created_at', header: 'Created' }
@@ -546,6 +604,20 @@ const getUpdatedTooltip = (record: Record<string, unknown>) => {
   return `Updated ${formatCell(updated, 'updated_at')}`
 }
 
+const getRecordText = (record: Record<string, unknown>, field: string, fallback = '--') => {
+  const value = record[field]
+
+  if (value === null || value === undefined || value === '') {
+    return fallback
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  return String(value)
+}
+
 const isTicketOverdue = (record: Record<string, unknown>) => {
   if (!isSupportTicketView.value) {
     return false
@@ -621,6 +693,29 @@ const getDelayText = (record: Record<string, unknown>) => {
 
   return `${formatDuration(delayMs)} overdue`
 }
+
+const ticketDetail = computed(() => {
+  if (!isSupportTicketView.value || !detailRecord.value) {
+    return null
+  }
+
+  const record = detailRecord.value
+
+  return {
+    title: getRecordText(record, 'title'),
+    subject: getRecordText(record, 'subject'),
+    description: getRecordText(record, 'description'),
+    tenant: getRecordText(record, 'tenant_display'),
+    watchman: getRecordText(record, 'watchman_display'),
+    status: getRecordText(record, 'status'),
+    priority: getRecordText(record, 'priority'),
+    created: formatCell(record.created_at, 'created_at'),
+    updated: formatCell(record.updated_at, 'updated_at'),
+    delay: getDelayText(record),
+    building: getRecordText(record, 'building_name'),
+    ticketId: getRecordText(record, 'id') !== '--' ? getRecordText(record, 'id') : getRecordText(record, 'support_ticket_id')
+  }
+})
 
 const normalizeTenantRows = (data: Record<string, unknown>[]) =>
   data.map((row) => {
@@ -1241,6 +1336,7 @@ watch(
 .created-cell {
   cursor: help;
   border-bottom: 1px dotted rgba(15, 23, 42, 0.4);
+  font-size: 0.85rem;
 }
 
 .status-tag {
@@ -1261,6 +1357,80 @@ watch(
 
 .entity-table :deep(.overdue-row:hover) {
   background: rgba(248, 113, 113, 0.18);
+}
+
+.ticket-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ticket-dialog__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, #1d4ed8, #9333ea);
+  color: #fff;
+}
+
+.ticket-dialog__header h3 {
+  margin: 0.25rem 0 0.15rem;
+  font-size: 1.4rem;
+}
+
+.ticket-dialog__header p {
+  margin: 0;
+  opacity: 0.9;
+}
+
+.ticket-priority-tag {
+  margin-left: 0.5rem;
+}
+
+.ticket-dialog__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.meta-label {
+  display: block;
+  opacity: 0.75;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.delay-chip {
+  color: #fee2e2;
+}
+
+.ticket-dialog__body {
+  padding: 1rem;
+  border-radius: 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ticket-dialog__description {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  min-height: 64px;
+  color: #0f172a;
+}
+
+.ticket-dialog__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
 }
 
 @media (max-width: 640px) {
