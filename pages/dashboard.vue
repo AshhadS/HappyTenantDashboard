@@ -130,6 +130,65 @@
           </Card>
         </div>
 
+        <div class="complaint-modal-trigger">
+          <Button
+            label="View Complaint Timelines"
+            icon="pi pi-clock"
+            severity="info"
+            outlined
+            @click="openComplaintModal"
+          />
+        </div>
+
+        <Dialog
+          v-model:visible="complaintModalVisible"
+          modal
+          header="Complaint Timelines"
+          class="complaint-dialog"
+          :style="{ width: 'min(640px, 95vw)' }"
+        >
+          <div v-if="timelineLoading" class="timeline-loading">
+            <Skeleton v-for="index in 3" :key="index" height="80px" borderRadius="1rem" />
+          </div>
+          <Message v-else-if="timelineError" severity="error" :closable="false">
+            {{ timelineError }}
+          </Message>
+          <Message v-else-if="!complaintTimelines.length" severity="info" :closable="false">
+            No complaint activity yet. New tickets will show up here automatically.
+          </Message>
+          <div v-else class="complaint-timelines">
+            <div class="complaint-ticket" v-for="ticket in complaintTimelines" :key="ticket.id">
+              <div class="ticket-headline">
+                <div class="ticket-headline__meta">
+                  <strong>{{ ticket.title }}</strong>
+                  <p>Opened {{ formatTimelineDate(ticket.created_at) }}</p>
+                  <small class="ticket-read-receipt">{{ readReceiptLabel(ticket.readReceipt) }}</small>
+                </div>
+                <div class="ticket-headline__tags">
+                  <Tag :value="ticket.status" severity="info" rounded />
+                  <Tag
+                    :value="readReceiptLabel(ticket.readReceipt)"
+                    :severity="readReceiptSeverity(ticket.readReceipt)"
+                    rounded
+                    class="read-receipt-tag"
+                  />
+                </div>
+              </div>
+
+              <ul class="timeline-list">
+                <li v-for="event in ticket.events" :key="event.key" class="timeline-event">
+                  <span :class="['timeline-dot', `variant-${event.variant}`]" />
+                  <div>
+                    <div class="timeline-event__label">{{ event.label }}</div>
+                    <small>{{ event.timestamp }}</small>
+                    <p v-if="event.detail">{{ event.detail }}</p>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </Dialog>
+
       </section>
     </div>
   </main>
@@ -141,14 +200,57 @@ import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables
 
 type EntityKey = 'tenant' | 'watchman' | 'support_ticket'
 
+interface SupportTicketRecord {
+  id: string
+  title: string
+  status: string
+  created_at: string
+  updated_at?: string
+}
+
+interface SupportTicketEventRecord {
+  ticket_id: string
+  event_type: string
+  created_at: string
+  metadata?: Record<string, unknown> | string | null
+}
+
+interface ComplaintTimelineEvent {
+  key: string
+  label: string
+  timestamp: string
+  detail?: string
+  variant: string
+}
+
+interface ComplaintTimeline {
+  id: string
+  title: string
+  status: string
+  created_at: string
+  events: ComplaintTimelineEvent[]
+  readReceipt: {
+    status: 'READ' | 'UNREAD'
+    timestamp?: string
+  }
+}
+
 const role = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const timelineLoading = ref(false)
+const timelineError = ref('')
 const counts = reactive({
   tenant: 0,
   watchman: 0,
   support_tickets: 0
 })
+const complaintTimelines = ref<ComplaintTimeline[]>([])
+const runtimeConfig = useRuntimeConfig()
+const supabaseUrl = runtimeConfig.public.supabaseUrl
+const supabaseAnonKey = runtimeConfig.public.supabaseAnonKey
+const supabaseToken = ref('')
+const complaintModalVisible = ref(false)
 const router = useRouter()
 const entityRoutes: Record<EntityKey, string> = {
   tenant: '/entities/tenants',
@@ -320,6 +422,256 @@ const handleStatClick = (key: EntityKey) => {
 
 const { getTableCount } = useSupabaseAuth()
 
+const buildInFilter = (values: string[]) => {
+  if (!values.length) {
+    return ''
+  }
+
+  const tokens = values.map((value) => `"${value}"`)
+
+  return `in.(${tokens.join(',')})`
+}
+
+const parseMetadata = (value: unknown) => {
+  if (!value) {
+    return null
+  }
+
+  if (typeof value === 'object') {
+    return value as Record<string, unknown>
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+const formatTimelineDate = (value?: string) => {
+  if (!value) {
+    return '--'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
+
+const formatTimestamp = (value?: string) => {
+  if (!value) {
+    return '—'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  })
+}
+
+const timelineVariantMap: Record<string, string> = {
+  created: 'primary',
+  VIEWED: 'muted',
+  IN_PROGRESS: 'info',
+  FIXED: 'warning',
+  COMPLETED: 'success',
+  VERIFIED: 'success'
+}
+
+const formatEventLabel = (eventType: string) => {
+  switch (eventType) {
+    case 'VIEWED':
+      return 'Viewed by team'
+    case 'IN_PROGRESS':
+      return 'Work in progress'
+    case 'FIXED':
+      return 'Fix applied'
+    case 'COMPLETED':
+      return 'Ticket completed'
+    case 'VERIFIED':
+      return 'Resolution verified'
+    default:
+      return eventType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase())
+  }
+}
+
+const buildTimelineEvents = (
+  ticket: SupportTicketRecord,
+  events: SupportTicketEventRecord[]
+): ComplaintTimelineEvent[] => {
+  const timeline: ComplaintTimelineEvent[] = [
+    {
+      key: `${ticket.id}-created`,
+      label: 'Ticket created',
+      timestamp: formatTimestamp(ticket.created_at),
+      detail: `Initial status: ${ticket.status}`,
+      variant: timelineVariantMap.created
+    }
+  ]
+
+  events.forEach((event, index) => {
+    const metadata = parseMetadata(event.metadata)
+    const detail =
+      metadata && typeof metadata === 'object' && 'from' in metadata && 'to' in metadata
+        ? `Status changed: ${metadata.from as string} → ${metadata.to as string}`
+        : undefined
+
+    timeline.push({
+      key: `${event.ticket_id}-${index}`,
+      label: formatEventLabel(event.event_type),
+      timestamp: formatTimestamp(event.created_at),
+      detail,
+      variant: timelineVariantMap[event.event_type] || 'muted'
+    })
+  })
+
+  return timeline
+}
+
+const buildReadReceipt = (events: SupportTicketEventRecord[]): ComplaintTimeline['readReceipt'] => {
+  if (!events.length) {
+    return {
+      status: 'UNREAD'
+    }
+  }
+
+  const viewed = events.filter((event) => event.event_type === 'VIEWED')
+
+  if (!viewed.length) {
+    return {
+      status: 'UNREAD'
+    }
+  }
+
+  const lastViewed = viewed[viewed.length - 1]
+
+  return {
+    status: 'READ',
+    timestamp: formatTimestamp(lastViewed.created_at)
+  }
+}
+
+const readReceiptLabel = (receipt: ComplaintTimeline['readReceipt']) => {
+  if (receipt.status === 'READ' && receipt.timestamp) {
+    return `Read ${receipt.timestamp}`
+  }
+
+  return 'Not viewed yet'
+}
+
+const readReceiptSeverity = (receipt: ComplaintTimeline['readReceipt']) =>
+  receipt.status === 'READ' ? 'success' : 'warning'
+
+const openComplaintModal = async () => {
+  complaintModalVisible.value = true
+
+  if (!supabaseToken.value) {
+    timelineError.value = 'You are not signed in.'
+    complaintTimelines.value = []
+    return
+  }
+
+  await loadComplaintTimelines(supabaseToken.value)
+}
+
+const loadComplaintTimelines = async (token: string) => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    timelineError.value = 'Supabase configuration is missing.'
+    return
+  }
+
+  if (!token) {
+    timelineError.value = 'Missing authentication token.'
+    return
+  }
+
+  timelineLoading.value = true
+  timelineError.value = ''
+
+  try {
+    const headers = {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${token}`
+    }
+
+    const tickets = await $fetch<SupportTicketRecord[]>(`${supabaseUrl}/rest/v1/support_ticket`, {
+      method: 'GET',
+      query: {
+        select: 'id,title,status,created_at,updated_at',
+        order: 'created_at.desc',
+        limit: 3
+      },
+      headers
+    })
+
+    if (!tickets?.length) {
+      complaintTimelines.value = []
+      timelineLoading.value = false
+      return
+    }
+
+    const ids = tickets.map((ticket) => ticket.id).filter(Boolean)
+    const events =
+      (ids.length &&
+        (await $fetch<SupportTicketEventRecord[]>(`${supabaseUrl}/rest/v1/support_ticket_events`, {
+          method: 'GET',
+          query: {
+            select: 'ticket_id,event_type,created_at,metadata',
+            ticket_id: buildInFilter(ids),
+            order: 'created_at.asc'
+          },
+          headers
+        }))) ||
+      []
+
+    const eventsByTicket = events.reduce<Record<string, SupportTicketEventRecord[]>>((acc, event) => {
+      if (!acc[event.ticket_id]) {
+        acc[event.ticket_id] = []
+      }
+
+      acc[event.ticket_id].push(event)
+      return acc
+    }, {})
+
+    complaintTimelines.value = tickets.map((ticket) => {
+      const ticketEvents = eventsByTicket[ticket.id] || []
+
+      return {
+        id: ticket.id,
+        title: ticket.title || 'Untitled ticket',
+        status: ticket.status || 'OPEN',
+        created_at: ticket.created_at,
+        events: buildTimelineEvents(ticket, ticketEvents),
+        readReceipt: buildReadReceipt(ticketEvents)
+      }
+    })
+  } catch (error) {
+    const err = error as { data?: { message?: string; error_description?: string }; message?: string }
+    timelineError.value =
+      err?.data?.message ?? err?.data?.error_description ?? err?.message ?? 'Unable to load complaint timelines.'
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
 onMounted(async () => {
   if (!process.client) {
     return
@@ -327,6 +679,7 @@ onMounted(async () => {
 
   const storedToken = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
   role.value = localStorage.getItem(SUPABASE_USER_ROLE_KEY) || ''
+  supabaseToken.value = storedToken || ''
 
   if (!storedToken) {
     errorMessage.value = 'You are not signed in. Please log in first.'
@@ -600,6 +953,125 @@ onMounted(async () => {
 
 .actions-grid :deep(.p-button) {
   width: 100%;
+}
+
+.complaint-dialog .timeline-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.complaint-modal-trigger {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.complaint-timelines {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.complaint-ticket {
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #f8fafc;
+}
+
+.complaint-ticket .ticket-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.complaint-ticket .ticket-headline__meta small {
+  display: block;
+  margin-top: 0.2rem;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.complaint-ticket .ticket-headline__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.complaint-ticket .ticket-headline p {
+  margin: 0.25rem 0 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.timeline-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 0.8rem;
+  position: relative;
+}
+
+.timeline-dot {
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
+}
+
+.timeline-dot.variant-muted {
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
+}
+
+.timeline-dot.variant-primary {
+  background: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+}
+
+.timeline-dot.variant-info {
+  background: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.timeline-dot.variant-warning {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+}
+
+.timeline-dot.variant-success {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+}
+
+.timeline-event__label {
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+  color: #0f172a;
+}
+
+.timeline-event small {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #64748b;
+}
+
+.timeline-event p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.92rem;
 }
 
 @media (max-width: 640px) {

@@ -82,13 +82,33 @@
                   sortable
                 >
                   <template #body="{ data }">
-                    {{ formatCell(data[column.field]) }}
+                    <span
+                      v-if="column.field === 'created_at'"
+                      class="created-cell"
+                      :title="getUpdatedTooltip(data)"
+                    >
+                      {{ formatCell(data[column.field], column.field) }}
+                    </span>
+                    <template v-else>
+                      {{ formatCell(data[column.field], column.field) }}
+                    </template>
                   </template>
                 </Column>
 
                 <Column header="Actions">
                   <template #body="{ data }">
-                    <Button label="View" icon="pi pi-search" size="small" severity="secondary" text @click="openRecordDetail(data)" />
+                    <div class="action-buttons">
+                      <Button label="View" icon="pi pi-search" size="small" severity="secondary" text @click="openRecordDetail(data)" />
+                      <Button
+                        v-if="isSupportTicketView"
+                        label="Timeline"
+                        icon="pi pi-clock"
+                        size="small"
+                        severity="info"
+                        text
+                        @click="openTimelineDialog(data)"
+                      />
+                    </div>
                   </template>
                 </Column>
               </DataTable>
@@ -113,6 +133,32 @@
           </div>
         </div>
         <Message v-else severity="info" :closable="false">No details available.</Message>
+      </Dialog>
+
+      <Dialog
+        v-model:visible="timelineDialogVisible"
+        modal
+        :header="`Timeline · ${timelineTicketTitle}`"
+        class="timeline-dialog"
+        :style="{ width: 'min(520px, 92vw)' }"
+      >
+        <div v-if="timelineLoading" class="timeline-loading">
+          <Skeleton height="2.75rem" borderRadius="1rem" />
+          <Skeleton height="2.75rem" borderRadius="1rem" />
+          <Skeleton height="2.75rem" borderRadius="1rem" />
+        </div>
+        <Message v-else-if="timelineError" severity="warn" :closable="false">{{ timelineError }}</Message>
+        <ul v-else-if="timelineEvents.length" class="timeline-list">
+          <li v-for="event in timelineEvents" :key="event.key" class="timeline-event">
+            <span :class="['timeline-dot', `variant-${event.variant}`]" />
+            <div>
+              <div class="timeline-event__label">{{ event.label }}</div>
+              <small>{{ event.timestamp }}</small>
+              <p v-if="event.detail">{{ event.detail }}</p>
+            </div>
+          </li>
+        </ul>
+        <Message v-else severity="info" :closable="false">No timeline activity recorded.</Message>
       </Dialog>
     </div>
   </main>
@@ -190,7 +236,10 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
     rowKey: 'id',
     description: 'Review every resident request and make sure the right team is following up.',
     columns: [
+      { field: 'title', header: 'Title' },
       { field: 'subject', header: 'Subject' },
+      { field: 'tenant_display', header: 'Tenant' },
+      { field: 'watchman_display', header: 'Watchman' },
       { field: 'status', header: 'Status' },
       { field: 'priority', header: 'Priority' },
       { field: 'created_at', header: 'Created' }
@@ -200,10 +249,11 @@ const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
       rowKey: 'support_ticket_id',
       columns: [
         { field: 'title', header: 'Title' },
+        { field: 'tenant_display', header: 'Tenant' },
+        { field: 'watchman_display', header: 'Watchman' },
         { field: 'status', header: 'Status' },
-        { field: 'tenant_name', header: 'Tenant' },
         { field: 'building_name', header: 'Building' },
-        { field: 'watchman_name', header: 'Watchman' }
+        { field: 'created_at', header: 'Created' }
       ]
     }
   }
@@ -222,6 +272,14 @@ const rows = ref<Record<string, unknown>[]>([])
 const lastFetched = ref<Date | null>(null)
 const detailDialogVisible = ref(false)
 const detailRecord = ref<Record<string, unknown> | null>(null)
+const timelineDialogVisible = ref(false)
+const timelineTicketTitle = ref('')
+const timelineTicketId = ref('')
+const timelineLoading = ref(false)
+const timelineError = ref('')
+const timelineEvents = ref<
+  { key: string; label: string; timestamp: string; detail?: string; variant: string }[]
+>([])
 
 const supabaseUrl = runtimeConfig.public.supabaseUrl
 const supabaseAnonKey = runtimeConfig.public.supabaseAnonKey
@@ -239,6 +297,7 @@ const entitySlug = computed<EntitySlug | null>(() => {
 const activeEntity = computed(() => (entitySlug.value ? entityDefinitions[entitySlug.value] : null))
 const isLandlord = computed(() => role.value === 'LANDLORD')
 const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value)
+const isSupportTicketView = computed(() => entitySlug.value === 'support-tickets')
 
 const columnHints = computed(() => {
   if (!activeEntity.value) {
@@ -279,6 +338,10 @@ const selectClause = computed(() => {
 
   if (entitySlug.value === 'tenants' && !isLandlord.value) {
     segments.push('watchman:watchman_id(full_name)')
+  }
+
+  if (entitySlug.value === 'support-tickets' && !isLandlord.value) {
+    segments.push('tenant:tenant_id(full_name,watchman_id)')
   }
 
   return segments.join(',')
@@ -335,13 +398,110 @@ const detailDialogTitle = computed(() => {
   return `${activeEntity.value.label} Details`
 })
 
-const formatCell = (value: unknown) => {
+const timelineVariantMap: Record<string, string> = {
+  VIEWED: 'muted',
+  IN_PROGRESS: 'info',
+  FIXED: 'warning',
+  COMPLETED: 'success',
+  VERIFIED: 'success'
+}
+
+const formatTimelineTimestamp = (value?: string) => {
+  if (!value) {
+    return '—'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  })
+}
+
+const formatEventLabel = (eventType: string) => {
+  switch (eventType) {
+    case 'VIEWED':
+      return 'Viewed'
+    case 'IN_PROGRESS':
+      return 'Work in progress'
+    case 'FIXED':
+      return 'Fix applied'
+    case 'COMPLETED':
+      return 'Completed'
+    case 'VERIFIED':
+      return 'Verified'
+    default:
+      return eventType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase())
+  }
+}
+
+const parseEventMetadata = (value: unknown) => {
+  if (!value) {
+    return null
+  }
+
+  if (typeof value === 'object') {
+    return value as Record<string, unknown>
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}/
+
+const isLikelyIsoDate = (value: string) => isoDatePattern.test(value) && !Number.isNaN(Date.parse(value))
+
+const humanizeDate = (value: string) => {
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  })
+}
+
+const shouldFormatAsDate = (value: string, field?: string) => {
+  if (field && field.endsWith('_at')) {
+    return true
+  }
+
+  return isLikelyIsoDate(value)
+}
+
+const formatCell = (value: unknown, field?: string) => {
   if (value === null || value === undefined) {
     return '--'
   }
 
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
+    const textValue = String(value)
+
+    if (typeof value === 'string' && shouldFormatAsDate(value, field)) {
+      return humanizeDate(value)
+    }
+
+    if (typeof value === 'number' && field && field.endsWith('_at')) {
+      return humanizeDate(new Date(value).toISOString())
+    }
+
+    return textValue
   }
 
   return JSON.stringify(value)
@@ -360,16 +520,22 @@ const detailEntries = computed(() => {
   return Object.entries(detailRecord.value).map(([key, value]) => ({
     key,
     label: prettifyField(key),
-    value: formatCell(value)
+    value: formatCell(value, key)
   }))
 })
 
-const normalizeRows = (data: Record<string, unknown>[]) => {
-  if (!activeEntity.value || entitySlug.value !== 'tenants') {
-    return data
+const getUpdatedTooltip = (record: Record<string, unknown>) => {
+  const updated = (record as { updated_at?: unknown }).updated_at
+
+  if (!updated) {
+    return 'Not updated yet'
   }
 
-  return data.map((row) => {
+  return `Updated ${formatCell(updated, 'updated_at')}`
+}
+
+const normalizeTenantRows = (data: Record<string, unknown>[]) =>
+  data.map((row) => {
     const normalized = { ...row }
     const watchmanRelation = (normalized as { watchman?: { full_name?: string } }).watchman
     const watchmanName =
@@ -387,6 +553,58 @@ const normalizeRows = (data: Record<string, unknown>[]) => {
 
     return normalized
   })
+
+const normalizeSupportTicketRows = (data: Record<string, unknown>[]) =>
+  data.map((row) => {
+    const normalized = { ...row }
+
+    if (isLandlord.value) {
+      normalized.tenant_display =
+        (normalized as { tenant_display?: unknown }).tenant_display ||
+        (normalized as { tenant_name?: unknown }).tenant_name ||
+        '--'
+
+      normalized.watchman_display =
+        (normalized as { watchman_display?: unknown }).watchman_display ||
+        (normalized as { watchman_name?: unknown }).watchman_name ||
+        '--'
+    } else {
+      const tenantRelation = (normalized as {
+        tenant?: { full_name?: string; watchman_id?: string | number }
+      }).tenant
+
+      normalized.tenant_display =
+        (normalized as { tenant_display?: unknown }).tenant_display ||
+        tenantRelation?.full_name ||
+        '--'
+
+      normalized.watchman_display =
+        (normalized as { watchman_display?: unknown }).watchman_display ||
+        (normalized as { watchman_name?: unknown }).watchman_name ||
+        '--'
+
+      if ('tenant' in normalized) {
+        delete (normalized as Record<string, unknown>).tenant
+      }
+    }
+
+    return normalized
+  })
+
+const normalizeRows = (data: Record<string, unknown>[]) => {
+  if (!activeEntity.value) {
+    return data
+  }
+
+  if (entitySlug.value === 'tenants') {
+    return normalizeTenantRows(data)
+  }
+
+  if (entitySlug.value === 'support-tickets') {
+    return normalizeSupportTicketRows(data)
+  }
+
+  return data
 }
 
 const buildInFilter = (values: (string | number)[]) => {
@@ -472,6 +690,49 @@ const enrichLandlordTenantRows = async (data: Record<string, unknown>[]) => {
   })
 }
 
+const extractSupportTicketWatchmanIds = (rows: Record<string, unknown>[]) =>
+  Array.from(
+    new Set(
+      rows
+        .map((row) => {
+          const directId = (row as { watchman_id?: string | number }).watchman_id
+          const nestedTenant = (row as { tenant?: { watchman_id?: string | number } }).tenant
+
+          return directId ?? nestedTenant?.watchman_id ?? null
+        })
+        .filter((value): value is string | number => Boolean(value))
+    )
+  )
+
+const enrichSupportTicketRows = async (rows: Record<string, unknown>[]) => {
+  if (!rows.length) {
+    return rows
+  }
+
+  const watchmanIds = extractSupportTicketWatchmanIds(rows)
+
+  if (!watchmanIds.length) {
+    return rows
+  }
+
+  const watchmanMap = await fetchWatchmanNames(watchmanIds)
+
+  return rows.map((row) => {
+    const directId = (row as { watchman_id?: string | number }).watchman_id
+    const tenantWatchmanId = (row as { tenant?: { watchman_id?: string | number } }).tenant?.watchman_id
+    const lookupId = directId ?? tenantWatchmanId
+
+    if (lookupId && watchmanMap[lookupId]) {
+      return {
+        ...row,
+        watchman_name: watchmanMap[lookupId]
+      }
+    }
+
+    return row
+  })
+}
+
 const loadRows = async () => {
   if (!activeEntity.value) {
     errorMessage.value = 'Unknown list.'
@@ -529,6 +790,10 @@ const loadRows = async () => {
       data = await enrichLandlordTenantRows(data)
     }
 
+    if (entitySlug.value === 'support-tickets') {
+      data = await enrichSupportTicketRows(data)
+    }
+
     rows.value = normalizeRows(data)
     lastFetched.value = new Date()
   } catch (error) {
@@ -542,6 +807,106 @@ const loadRows = async () => {
 const openRecordDetail = (record: Record<string, unknown>) => {
   detailRecord.value = record
   detailDialogVisible.value = true
+}
+
+const supportTicketIdField = computed(() => {
+  if (!isSupportTicketView.value) {
+    return 'id'
+  }
+
+  if (isLandlord.value && activeEntity.value?.landlordView) {
+    return 'support_ticket_id'
+  }
+
+  return 'id'
+})
+
+const openTimelineDialog = async (record: Record<string, unknown>) => {
+  if (!isSupportTicketView.value) {
+    return
+  }
+
+  const idField = supportTicketIdField.value
+  const ticketId = (record as Record<string, unknown>)[idField]
+
+  if (!ticketId || typeof ticketId !== 'string') {
+    timelineError.value = 'Ticket id is missing.'
+    timelineEvents.value = []
+    timelineDialogVisible.value = true
+
+    return
+  }
+
+  timelineTicketId.value = ticketId
+  timelineTicketTitle.value = (record as { title?: string; subject?: string }).title || (record as { subject?: string }).subject || 'Support Ticket'
+  timelineDialogVisible.value = true
+  await loadTicketTimeline(ticketId)
+}
+
+const loadTicketTimeline = async (ticketId: string) => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    timelineError.value = 'Supabase configuration is missing.'
+    return
+  }
+
+  if (!supabaseAccessToken.value) {
+    timelineError.value = 'You are not signed in.'
+    return
+  }
+
+  timelineLoading.value = true
+  timelineError.value = ''
+
+  try {
+    const events = await $fetch<{ id: string; event_type: string; created_at: string; metadata?: Record<string, unknown> | string | null }[]>(
+      `${supabaseUrl}/rest/v1/support_ticket_events`,
+      {
+        method: 'GET',
+        query: {
+          select: 'id,event_type,created_at,metadata',
+          ticket_id: `eq.${ticketId}`,
+          order: 'created_at.asc'
+        },
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAccessToken.value}`,
+          Range: '0-99',
+          'Range-Unit': 'items'
+        }
+      }
+    )
+
+    if (!events?.length) {
+      timelineEvents.value = []
+      timelineError.value = 'No timeline activity for this ticket yet.'
+      return
+    }
+
+    timelineEvents.value = events.map((event, index) => {
+      const metadata = parseEventMetadata(event.metadata)
+      let detail: string | undefined
+
+      if (metadata && 'from' in metadata && 'to' in metadata) {
+        const fromValue = metadata.from as string
+        const toValue = metadata.to as string
+        detail = `Status changed: ${fromValue} -> ${toValue}`
+      }
+
+      return {
+        key: `${event.id}-${index}`,
+        label: formatEventLabel(event.event_type),
+        timestamp: formatTimelineTimestamp(event.created_at),
+        detail,
+        variant: timelineVariantMap[event.event_type] || 'muted'
+      }
+    })
+  } catch (error) {
+    const err = error as { data?: { message?: string; error_description?: string } }
+    timelineError.value = err?.data?.message ?? err?.data?.error_description ?? 'Unable to load ticket timeline.'
+    timelineEvents.value = []
+  } finally {
+    timelineLoading.value = false
+  }
 }
 
 const hydrateSession = () => {
@@ -711,6 +1076,83 @@ watch(
 .detail-value {
   color: #475569;
   text-align: right;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.timeline-dialog :deep(.p-dialog-header) {
+  font-weight: 700;
+}
+
+.timeline-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.timeline-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.timeline-dot {
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #cbd5f5;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.25);
+}
+
+.timeline-dot.variant-muted {
+  background: #94a3b8;
+}
+
+.timeline-dot.variant-info {
+  background: #3b82f6;
+}
+
+.timeline-dot.variant-warning {
+  background: #f59e0b;
+}
+
+.timeline-dot.variant-success {
+  background: #22c55e;
+}
+
+.timeline-event__label {
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+  color: #0f172a;
+}
+
+.timeline-event small {
+  display: block;
+  color: #64748b;
+  margin-bottom: 0.2rem;
+}
+
+.timeline-event p {
+  margin: 0;
+  color: #475569;
+}
+
+.created-cell {
+  cursor: help;
+  border-bottom: 1px dotted rgba(15, 23, 42, 0.4);
 }
 
 @media (max-width: 640px) {
