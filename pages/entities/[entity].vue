@@ -1,8 +1,6 @@
 <template>
   <main class="entity-page">
     <div class="page-shell">
-      <Button label="Back to dashboard" icon="pi pi-arrow-left" text severity="secondary" @click="router.push('/dashboard')" />
-
       <Card v-if="activeEntity" class="entity-hero">
         <template #content>
           <div class="hero-body">
@@ -406,10 +404,6 @@ const visibleColumns = computed(() => {
 const selectClause = computed(() => {
   const segments = ['*']
 
-  if (entitySlug.value === 'tenants' && !isLandlord.value) {
-    segments.push('watchman:watchman_id(full_name)')
-  }
-
   if (entitySlug.value === 'support-tickets' && !isLandlord.value) {
     segments.push('tenant:tenant_id(full_name,watchman_id)')
   }
@@ -720,19 +714,13 @@ const ticketDetail = computed(() => {
 const normalizeTenantRows = (data: Record<string, unknown>[]) =>
   data.map((row) => {
     const normalized = { ...row }
-    const watchmanRelation = (normalized as { watchman?: { full_name?: string } }).watchman
     const watchmanName =
       (normalized as { watchman_display?: unknown }).watchman_display ||
       (normalized as { watchman_name?: unknown }).watchman_name ||
-      watchmanRelation?.full_name ||
       (normalized as { watchman_id?: unknown }).watchman_id ||
       '--'
 
     normalized.watchman_display = watchmanName
-
-    if ('watchman' in normalized) {
-      delete (normalized as Record<string, unknown>).watchman
-    }
 
     return normalized
   })
@@ -836,8 +824,8 @@ const fetchWatchmanNames = async (ids: (string | number)[]) => {
   }
 }
 
-const enrichLandlordTenantRows = async (data: Record<string, unknown>[]) => {
-  if (!isLandlord.value || !data.length) {
+const enrichTenantRows = async (data: Record<string, unknown>[]) => {
+  if (!data.length) {
     return data
   }
 
@@ -969,8 +957,8 @@ const loadRows = async () => {
 
     data = data || []
 
-    if (entitySlug.value === 'tenants' && isLandlord.value) {
-      data = await enrichLandlordTenantRows(data)
+    if (entitySlug.value === 'tenants') {
+      data = await enrichTenantRows(data)
     }
 
     if (entitySlug.value === 'support-tickets') {
@@ -1137,9 +1125,7 @@ watch(
 .entity-page {
   min-height: 100vh;
   padding: 2.5rem 1rem 4rem;
-  background: radial-gradient(circle at top left, #fce7f3, transparent 50%),
-    radial-gradient(circle at 20% 80%, #bfdbfe, transparent 45%),
-    radial-gradient(circle at right, #fef3c7, transparent 40%), #0f172a;
+  background: var(--color-soft-linen-300);
   display: flex;
   justify-content: center;
 }
@@ -1154,9 +1140,8 @@ watch(
 .entity-hero :deep(.p-card-body) {
   border-radius: 1.4rem;
   padding: 2rem;
-  background: linear-gradient(135deg, #2563eb, #a855f7, #fb923c);
-  color: #fff;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.5);
+  background: var(--color-carbon-black-900);
+  color: var(--color-soft-linen-50);
 }
 
 .hero-body {

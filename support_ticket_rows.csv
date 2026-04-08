@@ -1,0 +1,7 @@
+id,tenant_id,title,description,status,photo_url,created_at,updated_at,user_id
+36d27763-2ccd-46c5-87dc-fbd213b064f6,bb517e6b-9020-416b-b616-651f1091389e,Freezer Not Working,Connection Issue,OPEN,,2025-10-17 18:59:57.389693+00,2025-10-17 18:59:57.389693+00,c1426005-4ac2-4aaa-bb4c-a9e56ff1e9ac
+53fc31e5-4c87-42d3-af1f-3b5a604b4dd1,bb517e6b-9020-416b-b616-651f1091389e,New Ticket,Testing,OPEN,,2025-10-15 19:16:14.50894+00,2025-10-15 19:16:14.50894+00,c1426005-4ac2-4aaa-bb4c-a9e56ff1e9ac
+b58d792f-813f-49d5-83da-4e49b91ad105,bb517e6b-9020-416b-b616-651f1091389e,Heating Delay,Heating Machine Delays Starting,COMPLETED,,2025-10-11 10:26:51.87125+00,2025-10-12 03:04:33.170902+00,30c7e1ec-961c-41fe-a17f-72a040ea999a
+b88ed2a2-8db0-4a02-a590-9d8a3b8927b5,7b27a72a-ac89-4c88-b5bc-c878bf5aeeda,Door Lock is broken,Room Door lock is not locking,IN_PROGRESS,,2025-09-23 03:08:20.840955+00,2025-10-17 18:58:07.458828+00,c1426005-4ac2-4aaa-bb4c-a9e56ff1e9ac
+e8dbc742-6013-4135-a77b-01ac69926e75,7b27a72a-ac89-4c88-b5bc-c878bf5aeeda,AC is not working,Hall AC is not working please check,IN_PROGRESS,,2025-09-23 03:06:13.202865+00,2025-10-15 19:15:15.553001+00,c1426005-4ac2-4aaa-bb4c-a9e56ff1e9ac
+f6f03123-4b97-490d-bd43-844fb40d0bef,bb517e6b-9020-416b-b616-651f1091389e,Heating Machine Not Heating,Heating Machine Not Heating,COMPLETED,,2025-10-11 09:39:55.985249+00,2026-02-13 16:48:36.120349+00,30c7e1ec-961c-41fe-a17f-72a040ea999a

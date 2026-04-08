@@ -1,18 +1,79 @@
 :root {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --surface-0: #ffffff;
-  --surface-100: #f8fafc;
-  --surface-200: #e2e8f0;
-  --surface-500: #64748b;
-  --surface-700: #334155;
-  --primary-500: #2563eb;
-  --primary-600: #1d4ed8;
-  --primary-100: #dbeafe;
+  --color-carbon-black-50: #f3f2f1;
+  --color-carbon-black-100: #e7e5e4;
+  --color-carbon-black-200: #cfcbc9;
+  --color-carbon-black-300: #b7b1ae;
+  --color-carbon-black-400: #9f9793;
+  --color-carbon-black-500: #877d78;
+  --color-carbon-black-600: #6c6460;
+  --color-carbon-black-700: #514b48;
+  --color-carbon-black-800: #363230;
+  --color-carbon-black-900: #1b1918;
+  --color-carbon-black-950: #131111;
+
+  --color-sunflower-gold-50: #fcf6e8;
+  --color-sunflower-gold-100: #faeed1;
+  --color-sunflower-gold-200: #f4dca4;
+  --color-sunflower-gold-300: #efcb76;
+  --color-sunflower-gold-400: #eab948;
+  --color-sunflower-gold-500: #e4a81b;
+  --color-sunflower-gold-600: #b78615;
+  --color-sunflower-gold-700: #896510;
+  --color-sunflower-gold-800: #5b430b;
+  --color-sunflower-gold-900: #2e2205;
+  --color-sunflower-gold-950: #201704;
+
+  --color-soft-linen-50: #f3f4f1;
+  --color-soft-linen-100: #e7e8e3;
+  --color-soft-linen-200: #ced2c6;
+  --color-soft-linen-300: #b6bbaa;
+  --color-soft-linen-400: #9ea48e;
+  --color-soft-linen-500: #868e71;
+  --color-soft-linen-600: #6b715b;
+  --color-soft-linen-700: #505544;
+  --color-soft-linen-800: #35392d;
+  --color-soft-linen-900: #1b1c17;
+  --color-soft-linen-950: #131410;
+
+  --color-indigo-velvet-50: #eeecf8;
+  --color-indigo-velvet-100: #dcdaf1;
+  --color-indigo-velvet-200: #b9b5e3;
+  --color-indigo-velvet-300: #968fd6;
+  --color-indigo-velvet-400: #736ac8;
+  --color-indigo-velvet-500: #5145ba;
+  --color-indigo-velvet-600: #403795;
+  --color-indigo-velvet-700: #302970;
+  --color-indigo-velvet-800: #201c4a;
+  --color-indigo-velvet-900: #100e25;
+  --color-indigo-velvet-950: #0b0a1a;
+
+  --color-khaki-beige-50: #f4f3f0;
+  --color-khaki-beige-100: #eae8e1;
+  --color-khaki-beige-200: #d5d0c3;
+  --color-khaki-beige-300: #c0b9a5;
+  --color-khaki-beige-400: #aaa188;
+  --color-khaki-beige-500: #958a6a;
+  --color-khaki-beige-600: #776e55;
+  --color-khaki-beige-700: #5a533f;
+  --color-khaki-beige-800: #3c372a;
+  --color-khaki-beige-900: #1e1c15;
+  --color-khaki-beige-950: #15130f;
+
+  --surface-0: var(--color-soft-linen-50);
+  --surface-100: var(--color-soft-linen-100);
+  --surface-200: var(--color-soft-linen-200);
+  --surface-500: var(--color-soft-linen-500);
+  --surface-700: var(--color-carbon-black-700);
+  --primary-500: var(--color-indigo-velvet-500);
+  --primary-600: var(--color-indigo-velvet-600);
+  --primary-100: var(--color-indigo-velvet-100);
 }
 
 body {
   margin: 0;
-  background: #f6f8fb;
+  background: var(--color-soft-linen-50);
+  color: var(--color-carbon-black-800);
 }
 
 #__nuxt,
@@ -32,13 +93,13 @@ html {
   top: 0;
   bottom: 0;
   left: 0;
-  background: linear-gradient(180deg, #0f172a, #1e1b4b);
-  color: #f1f5f9;
+  background: var(--color-carbon-black-900);
+  color: var(--color-soft-linen-50);
   padding: 2rem 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  box-shadow: 10px 0 40px rgba(15, 23, 42, 0.3);
+  box-shadow: 6px 0 30px rgba(19, 17, 17, 0.35);
   z-index: 20;
 }
 
@@ -52,11 +113,11 @@ html {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-sunflower-gold-500);
   display: grid;
   place-items: center;
   font-weight: 700;
-  color: #fef3c7;
+  color: var(--color-carbon-black-900);
 }
 
 .brand-title {
@@ -85,7 +146,7 @@ html {
   gap: 0.7rem;
   padding: 0.65rem 0.8rem;
   border-radius: 0.85rem;
-  color: rgba(241, 245, 249, 0.8);
+  color: rgba(247, 244, 238, 0.75);
   text-decoration: none;
   font-weight: 600;
   transition: background 0.2s, color 0.2s;
@@ -96,14 +157,14 @@ html {
 }
 
 .nav-link:hover {
-  background: rgba(148, 163, 184, 0.18);
-  color: #fff;
+  background: var(--color-carbon-black-800);
+  color: var(--color-soft-linen-50);
 }
 
 .nav-link.is-active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+  background: var(--color-sunflower-gold-600);
+  color: var(--color-carbon-black-900);
+  box-shadow: none;
 }
 
 .main-region {
@@ -156,7 +217,8 @@ html {
 }
 
 .p-card {
-  border-radius: 1.2rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--color-soft-linen-200);
 }
 
 .p-inputtext,
@@ -196,7 +258,7 @@ html {
 
 .p-button:not(.p-button-text) {
   background: var(--primary-500);
-  color: #fff;
+  color: var(--color-soft-linen-50);
 }
 
 .p-button:not(.p-button-text):enabled:hover {

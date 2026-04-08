@@ -713,9 +713,7 @@ onMounted(async () => {
 .dashboard-page {
   min-height: 100vh;
   padding: 2.5rem 1rem 4rem;
-  background: radial-gradient(circle at top left, #fce7f3, transparent 50%),
-    radial-gradient(circle at 20% 80%, #bfdbfe, transparent 45%),
-    radial-gradient(circle at right, #fef3c7, transparent 40%), #0f172a;
+  background: var(--color-soft-linen-300);
   display: flex;
   justify-content: center;
 }
@@ -736,9 +734,8 @@ onMounted(async () => {
 .hero-card :deep(.p-card-body) {
   border-radius: 1.5rem;
   padding: 2.25rem;
-  background: linear-gradient(135deg, #3730a3, #a855f7, #f97316);
-  color: #fff;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.45);
+  background: var(--color-carbon-black-900);
+  color: var(--color-soft-linen-50);
 }
 
 .hero-card__layout {
@@ -1077,10 +1074,6 @@ onMounted(async () => {
 @media (max-width: 640px) {
   .dashboard-page {
     padding: 1.5rem 1rem 2.5rem;
-  }
-
-  .hero-card :deep(.p-card-body) {
-    padding: 1.5rem;
   }
 }
 </style>
