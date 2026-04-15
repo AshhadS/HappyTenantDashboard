@@ -11,51 +11,167 @@
           <template #content>
             <div class="hero-card__layout">
               <div class="hero-card__copy">
-                <Tag value="Live environment" icon="pi pi-bolt" severity="warning" rounded />
-                <h1>Neighborhood health at a glance</h1>
-                <p>
-                  Keep every tenant, watchman, and support ticket flowing smoothly with colorful signals that react to your live
-                  Supabase data.
-                </p>
+                <div class="hero-card__header">
+                  <div>
+                    <Tag :value="`Live `" icon="pi pi-bolt mr-1" severity="warning" rounded />
+                    &nbsp;
+                    <Tag :value="`${role  }`" icon="pi pi-user" severity="warning" rounded />
 
-                <div class="hero-card__actions">
-                  <Button
-                    v-for="action in quickActions"
-                    :key="action.label"
-                    :label="action.label"
-                    :icon="action.icon"
-                    :severity="action.severity"
-                    rounded
-                    size="small"
-                  />
-                </div>
+                  </div>
+                  <div class="hero-card__headline">
+                    <h1>Admin Dashboard</h1>
+                  </div>
 
-                <div class="hero-highlights">
-                  <div class="hero-highlight" v-for="highlight in heroHighlights" :key="highlight.key">
-                    <div class="hero-highlight__icon">
-                      <i :class="['pi', highlight.icon]"></i>
-                    </div>
-                    <div>
-                      <span>{{ highlight.label }}</span>
-                      <p>{{ loading ? '...' : highlight.value }}</p>
-                      <small>{{ highlight.caption }}</small>
-                    </div>
+                  <div class="hero-card__actions">
+                    <Button
+                      v-for="action in quickActions"
+                      :key="action.label"
+                      :label="action.label"
+                      :icon="action.icon"
+                      :severity="action.severity"
+                      rounded
+                      size="small"
+                    />
                   </div>
                 </div>
               </div>
 
-              <div class="hero-card__summary">
-                <div class="hero-metric" v-for="signal in progressSignals" :key="signal.label">
-                  <div class="hero-metric__header">
-                    <span>{{ signal.label }}</span>
-                    <Tag :value="signal.tag" :severity="signal.severity" rounded />
+
+              <div v-if="role === 'LANDLORD'" class="hero-card__transparency">
+                <div class="transparency-header">
+                  <div>
+                    <span>Landlord Transparency</span>
+                    <p>Live accountability across buildings</p>
                   </div>
-                  <ProgressBar :value="signal.value" showValue></ProgressBar>
+                  <Tag value="Insight" severity="success" style="color: green;" rounded />
                 </div>
+
+                <div v-if="landlordMetricsLoading" class="transparency-mini-loading">
+                  <Skeleton v-for="index in 3" :key="`landlord-mini-${index}`" height="56px" borderRadius="0.8rem" />
+                </div>
+                <Message v-else-if="landlordMetricsError" severity="warn" :closable="false">
+                  {{ landlordMetricsError }}
+                </Message>
+                <Message v-else-if="!landlordSummary.total" severity="info" :closable="false">
+                  No landlord activity yet. Ticket insights will appear once complaints are recorded.
+                </Message>
+                <template v-else>
+                  <div class="transparency-pill-grid">
+                    <div class="pill accent-gold">
+                      <span>Total complaints</span>
+                      <strong>{{ landlordSummary.total }}</strong>
+                    </div>
+                    <div class="pill accent-rose">
+                      <span>Open items</span>
+                      <strong>{{ landlordSummary.open }}</strong>
+                    </div>
+                    <div class="pill accent-teal">
+                      <span>Resolved</span>
+                      <strong>{{ landlordSummary.completed }}</strong>
+                    </div>
+                    <div class="pill accent-indigo">
+                      <span>Avg resolution</span>
+                      <strong>{{ formatHours(landlordSummary.avgResolutionHours) }}</strong>
+                    </div>
+                  </div>
+
+                  <div class="transparency-mini-grid">
+                    <div class="mini-panel">
+                      <div class="mini-panel__header">
+                        <h4>Top Watchmen</h4>
+                        <small>Completion & speed</small>
+                      </div>
+                      <ul>
+                        <li v-for="watchman in landlordWatchmen" :key="watchman.name">
+                          <div>
+                            <strong>{{ watchman.name }}</strong>
+                            <small>{{ watchman.total }} tickets · {{ formatRate(watchman.completionRate) }}</small>
+                          </div>
+                          <Tag :value="formatHours(watchman.avgResolutionHours)" severity="secondary" rounded />
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div class="mini-panel">
+                      <div class="mini-panel__header">
+                        <h4>Building Load</h4>
+                        <small>Open vs total</small>
+                      </div>
+                      <ul>
+                        <li v-for="building in landlordBuildings" :key="building.name">
+                          <div>
+                            <strong>{{ building.name }}</strong>
+                            <small>{{ building.total }} total</small>
+                          </div>
+                          <Tag :value="`${building.open} open`" severity="warning" rounded />
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div class="mini-panel mini-panel--wide">
+                      <div class="mini-panel__header">
+                        <h4>Escalated Issues</h4>
+                        <Button
+                          v-if="hasEscalationOverflow"
+                          size="small"
+                          text
+                          label="See all"
+                          severity="danger"
+                          @click="openEscalatedModal"
+                        />
+                      </div>
+                      <p v-if="!topEscalatedIssues.length" class="empty-escalation-text">
+                        No escalations in progress.
+                      </p>
+                      <ul v-else class="escalation-list">
+                        <li v-for="issue in topEscalatedIssues" :key="issue.support_ticket_id">
+                          <div>
+                            <strong>{{ issue.title || 'Escalated ticket' }}</strong>
+                            <small>{{ issue.tenant_name || 'Unknown tenant' }} · {{ issue.building_name || 'Unassigned' }}</small>
+                          </div>
+                          <div class="escalation-meta">
+                            <span>{{ formatTimelineDate(issue.created_at) }}</span>
+                            <Tag value="Escalated" severity="danger" rounded />
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
           </template>
         </Card>
+
+        <Dialog
+          v-if="role === 'LANDLORD'"
+          v-model:visible="escalatedModalVisible"
+          modal
+          :header="escalatedModalTitle"
+          class="escalation-dialog"
+          :style="{ width: 'min(640px, 95vw)' }"
+        >
+          <div v-if="!landlordEscalated.length" class="empty-escalation-text">
+            No escalations available.
+          </div>
+          <ul v-else class="escalation-list modal">
+            <li v-for="issue in landlordEscalated" :key="issue.support_ticket_id">
+              <div>
+                <strong>{{ issue.title || 'Escalated ticket' }}</strong>
+                <small>
+                  {{ issue.tenant_name || 'Unknown tenant' }}
+                  · {{ issue.building_name || 'Unassigned' }}
+                  <span v-if="issue.unit_number">· Unit {{ issue.unit_number }}</span>
+                </small>
+                <p v-if="issue.description">{{ issue.description }}</p>
+              </div>
+              <div class="escalation-meta">
+                <span>{{ formatTimelineDate(issue.created_at) }}</span>
+                <Tag value="Escalated" severity="danger" rounded />
+              </div>
+            </li>
+          </ul>
+        </Dialog>
 
         <div class="stats-grid">
           <Card
@@ -87,108 +203,6 @@
             </template>
           </Card>
         </div>
-
-        <div class="widgets-grid">
-          <Card class="widget-card">
-            <template #title>Quick Insights</template>
-            <template #content>
-              <div class="insight" v-for="insight in quickInsights" :key="insight.label">
-                <Tag :value="insight.label" :icon="insight.icon" :severity="insight.severity" rounded />
-                <p>{{ insight.description }}</p>
-                <Badge :value="insight.badge" :severity="insight.badgeSeverity" />
-              </div>
-            </template>
-          </Card>
-
-          <Card class="widget-card">
-            <template #title>Priority Tickets</template>
-            <template #content>
-              <div class="ticket" v-for="ticket in priorityTickets" :key="ticket.subject">
-                <div>
-                  <strong>{{ ticket.subject }}</strong>
-                  <p>{{ ticket.detail }}</p>
-                </div>
-                <Tag :value="ticket.status" :severity="ticket.severity" rounded />
-              </div>
-            </template>
-          </Card>
-
-          <Card class="widget-card">
-            <template #title>Shortcuts</template>
-            <template #content>
-              <div class="actions-grid">
-                <Button
-                  v-for="action in shortcutButtons"
-                  :key="action.label"
-                  :label="action.label"
-                  :icon="action.icon"
-                  :severity="action.severity"
-                  outlined
-                />
-              </div>
-            </template>
-          </Card>
-        </div>
-
-        <div class="complaint-modal-trigger">
-          <Button
-            label="View Complaint Timelines"
-            icon="pi pi-clock"
-            severity="info"
-            outlined
-            @click="openComplaintModal"
-          />
-        </div>
-
-        <Dialog
-          v-model:visible="complaintModalVisible"
-          modal
-          header="Complaint Timelines"
-          class="complaint-dialog"
-          :style="{ width: 'min(640px, 95vw)' }"
-        >
-          <div v-if="timelineLoading" class="timeline-loading">
-            <Skeleton v-for="index in 3" :key="index" height="80px" borderRadius="1rem" />
-          </div>
-          <Message v-else-if="timelineError" severity="error" :closable="false">
-            {{ timelineError }}
-          </Message>
-          <Message v-else-if="!complaintTimelines.length" severity="info" :closable="false">
-            No complaint activity yet. New tickets will show up here automatically.
-          </Message>
-          <div v-else class="complaint-timelines">
-            <div class="complaint-ticket" v-for="ticket in complaintTimelines" :key="ticket.id">
-              <div class="ticket-headline">
-                <div class="ticket-headline__meta">
-                  <strong>{{ ticket.title }}</strong>
-                  <p>Opened {{ formatTimelineDate(ticket.created_at) }}</p>
-                  <small class="ticket-read-receipt">{{ readReceiptLabel(ticket.readReceipt) }}</small>
-                </div>
-                <div class="ticket-headline__tags">
-                  <Tag :value="ticket.status" severity="info" rounded />
-                  <Tag
-                    :value="readReceiptLabel(ticket.readReceipt)"
-                    :severity="readReceiptSeverity(ticket.readReceipt)"
-                    rounded
-                    class="read-receipt-tag"
-                  />
-                </div>
-              </div>
-
-              <ul class="timeline-list">
-                <li v-for="event in ticket.events" :key="event.key" class="timeline-event">
-                  <span :class="['timeline-dot', `variant-${event.variant}`]" />
-                  <div>
-                    <div class="timeline-event__label">{{ event.label }}</div>
-                    <small>{{ event.timestamp }}</small>
-                    <p v-if="event.detail">{{ event.detail }}</p>
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </Dialog>
-
       </section>
     </div>
   </main>
@@ -196,7 +210,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ID_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
 
 type EntityKey = 'tenant' | 'watchman' | 'support_ticket'
 
@@ -223,34 +237,59 @@ interface ComplaintTimelineEvent {
   variant: string
 }
 
-interface ComplaintTimeline {
-  id: string
-  title: string
-  status: string
-  created_at: string
-  events: ComplaintTimelineEvent[]
-  readReceipt: {
-    status: 'READ' | 'UNREAD'
-    timestamp?: string
-  }
+interface LandlordTicketRecord {
+  support_ticket_id?: string
+  title?: string
+  status?: string
+  description?: string
+  tenant_name?: string
+  building_name?: string
+  unit_number?: string
+  watchman_name?: string
+  photo_url?: string
+  escalated?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+interface LandlordWatchmanSummary {
+  name: string
+  total: number
+  completionRate: number
+  avgResolutionHours: number
+}
+
+interface LandlordBuildingSummary {
+  name: string
+  total: number
+  open: number
 }
 
 const role = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
-const timelineLoading = ref(false)
-const timelineError = ref('')
 const counts = reactive({
   tenant: 0,
   watchman: 0,
   support_tickets: 0
 })
-const complaintTimelines = ref<ComplaintTimeline[]>([])
 const runtimeConfig = useRuntimeConfig()
 const supabaseUrl = runtimeConfig.public.supabaseUrl
 const supabaseAnonKey = runtimeConfig.public.supabaseAnonKey
 const supabaseToken = ref('')
-const complaintModalVisible = ref(false)
+const landlordUserId = ref('')
+const landlordMetricsLoading = ref(false)
+const landlordMetricsError = ref('')
+const landlordSummary = reactive({
+  total: 0,
+  open: 0,
+  completed: 0,
+  avgResolutionHours: 0
+})
+const landlordWatchmen = ref<LandlordWatchmanSummary[]>([])
+const landlordBuildings = ref<LandlordBuildingSummary[]>([])
+const landlordEscalated = ref<LandlordTicketRecord[]>([])
+const escalatedModalVisible = ref(false)
 const router = useRouter()
 const entityRoutes: Record<EntityKey, string> = {
   tenant: '/entities/tenants',
@@ -261,6 +300,7 @@ const entityRoutes: Record<EntityKey, string> = {
 const occupancyGoal = 120
 const watchmanGoal = 20
 const ticketGoal = 40
+const resolvedStatuses = ['COMPLETED', 'RESOLVED', 'FIXED', 'VERIFIED', 'CLOSED']
 
 const quickActions = [
   { label: 'Add Tenant', icon: 'pi pi-user-plus', severity: 'success' },
@@ -281,6 +321,32 @@ const computePercent = (value: number, goal: number) => {
 
   return Math.min(100, Math.max(0, Math.round((value / goal) * 100)))
 }
+
+const formatHours = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '—'
+  }
+
+  if (value >= 24) {
+    const days = Math.floor(value / 24)
+    const hours = Math.round(value % 24)
+    return `${days}d ${hours}h`
+  }
+
+  return `${value.toFixed(1)}h`
+}
+
+const formatRate = (value: number) => `${Math.round(value)}%`
+
+const openEscalatedModal = () => {
+  if (landlordEscalated.value.length) {
+    escalatedModalVisible.value = true
+  }
+}
+
+const topEscalatedIssues = computed(() => landlordEscalated.value.slice(0, 3))
+const hasEscalationOverflow = computed(() => landlordEscalated.value.length > 3)
+const escalatedModalTitle = computed(() => `Escalated Issues (${landlordEscalated.value.length})`)
 
 const occupancyProgress = computed(() => computePercent(counts.tenant, occupancyGoal))
 const workforceProgress = computed(() => computePercent(counts.watchman, watchmanGoal))
@@ -487,13 +553,25 @@ const formatTimestamp = (value?: string) => {
   })
 }
 
-const timelineVariantMap: Record<string, string> = {
-  created: 'primary',
-  VIEWED: 'muted',
-  IN_PROGRESS: 'info',
-  FIXED: 'warning',
-  COMPLETED: 'success',
-  VERIFIED: 'success'
+const hoursBetween = (start?: string, end?: string) => {
+  if (!start || !end) {
+    return null
+  }
+
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null
+  }
+
+  const diffMs = endDate.getTime() - startDate.getTime()
+
+  if (diffMs <= 0) {
+    return null
+  }
+
+  return diffMs / 36e5
 }
 
 const formatEventLabel = (eventType: string) => {
@@ -513,98 +591,26 @@ const formatEventLabel = (eventType: string) => {
   }
 }
 
-const buildTimelineEvents = (
-  ticket: SupportTicketRecord,
-  events: SupportTicketEventRecord[]
-): ComplaintTimelineEvent[] => {
-  const timeline: ComplaintTimelineEvent[] = [
-    {
-      key: `${ticket.id}-created`,
-      label: 'Ticket created',
-      timestamp: formatTimestamp(ticket.created_at),
-      detail: `Initial status: ${ticket.status}`,
-      variant: timelineVariantMap.created
-    }
-  ]
-
-  events.forEach((event, index) => {
-    const metadata = parseMetadata(event.metadata)
-    const detail =
-      metadata && typeof metadata === 'object' && 'from' in metadata && 'to' in metadata
-        ? `Status changed: ${metadata.from as string} → ${metadata.to as string}`
-        : undefined
-
-    timeline.push({
-      key: `${event.ticket_id}-${index}`,
-      label: formatEventLabel(event.event_type),
-      timestamp: formatTimestamp(event.created_at),
-      detail,
-      variant: timelineVariantMap[event.event_type] || 'muted'
-    })
-  })
-
-  return timeline
-}
-
-const buildReadReceipt = (events: SupportTicketEventRecord[]): ComplaintTimeline['readReceipt'] => {
-  if (!events.length) {
-    return {
-      status: 'UNREAD'
-    }
-  }
-
-  const viewed = events.filter((event) => event.event_type === 'VIEWED')
-
-  if (!viewed.length) {
-    return {
-      status: 'UNREAD'
-    }
-  }
-
-  const lastViewed = viewed[viewed.length - 1]
-
-  return {
-    status: 'READ',
-    timestamp: formatTimestamp(lastViewed.created_at)
-  }
-}
-
-const readReceiptLabel = (receipt: ComplaintTimeline['readReceipt']) => {
-  if (receipt.status === 'READ' && receipt.timestamp) {
-    return `Read ${receipt.timestamp}`
-  }
-
-  return 'Not viewed yet'
-}
-
-const readReceiptSeverity = (receipt: ComplaintTimeline['readReceipt']) =>
-  receipt.status === 'READ' ? 'success' : 'warning'
-
-const openComplaintModal = async () => {
-  complaintModalVisible.value = true
-
-  if (!supabaseToken.value) {
-    timelineError.value = 'You are not signed in.'
-    complaintTimelines.value = []
-    return
-  }
-
-  await loadComplaintTimelines(supabaseToken.value)
-}
-
-const loadComplaintTimelines = async (token: string) => {
+const loadLandlordTransparencyData = async (token: string, userId: string) => {
   if (!supabaseUrl || !supabaseAnonKey) {
-    timelineError.value = 'Supabase configuration is missing.'
+    landlordMetricsError.value = 'Supabase configuration is missing.'
     return
   }
 
-  if (!token) {
-    timelineError.value = 'Missing authentication token.'
+  if (!token || !userId) {
+    landlordMetricsError.value = 'Missing landlord session information.'
     return
   }
 
-  timelineLoading.value = true
-  timelineError.value = ''
+  landlordMetricsLoading.value = true
+  landlordMetricsError.value = ''
+  landlordSummary.total = 0
+  landlordSummary.open = 0
+  landlordSummary.completed = 0
+  landlordSummary.avgResolutionHours = 0
+  landlordWatchmen.value = []
+  landlordBuildings.value = []
+  landlordEscalated.value = []
 
   try {
     const headers = {
@@ -612,63 +618,111 @@ const loadComplaintTimelines = async (token: string) => {
       Authorization: `Bearer ${token}`
     }
 
-    const tickets = await $fetch<SupportTicketRecord[]>(`${supabaseUrl}/rest/v1/support_ticket`, {
-      method: 'GET',
-      query: {
-        select: 'id,title,status,created_at,updated_at',
-        order: 'created_at.desc',
-        limit: 3
-      },
-      headers
+    const tickets =
+      (await $fetch<LandlordTicketRecord[]>(`${supabaseUrl}/rest/v1/landlord_support_tickets_view`, {
+        method: 'GET',
+        query: {
+          select:
+            'support_ticket_id,title,description,status,photo_url,tenant_name,unit_number,watchman_name,building_name,escalated,created_at,updated_at',
+          landlord_user_id: `eq.${userId}`,
+          order: 'created_at.desc',
+          limit: 500
+        },
+        headers
+      })) || []
+
+    const total = tickets.length
+    let open = 0
+    let completed = 0
+    const resolutionDurations: number[] = []
+    const watchmanMap = new Map<
+      string,
+      { total: number; completed: number; durations: number[] }
+    >()
+    const buildingMap = new Map<string, { total: number; open: number }>()
+    const escalatedTickets: LandlordTicketRecord[] = []
+
+    tickets.forEach((ticket) => {
+      const status = (ticket.status || '').toUpperCase()
+      const isEscalated = Boolean(ticket.escalated) || status === 'ESCALATED'
+      const resolved = resolvedStatuses.includes(status)
+
+      if (resolved) {
+        completed++
+      } else {
+        open++
+      }
+
+      const duration = resolved ? hoursBetween(ticket.created_at, ticket.updated_at) : null
+
+      if (duration) {
+        resolutionDurations.push(duration)
+      }
+
+      const watchmanKey = (ticket.watchman_name || 'Unassigned').trim() || 'Unassigned'
+      const watchmanEntry = watchmanMap.get(watchmanKey) || { total: 0, completed: 0, durations: [] }
+      watchmanEntry.total += 1
+      if (resolved) {
+        watchmanEntry.completed += 1
+        if (duration) {
+          watchmanEntry.durations.push(duration)
+        }
+      }
+      watchmanMap.set(watchmanKey, watchmanEntry)
+
+      const buildingKey = (ticket.building_name || 'Unassigned').trim() || 'Unassigned'
+      const buildingEntry = buildingMap.get(buildingKey) || { total: 0, open: 0 }
+      buildingEntry.total += 1
+      if (!resolved) {
+        buildingEntry.open += 1
+      }
+      buildingMap.set(buildingKey, buildingEntry)
+
+      if (isEscalated) {
+        escalatedTickets.push(ticket)
+      }
     })
 
-    if (!tickets?.length) {
-      complaintTimelines.value = []
-      timelineLoading.value = false
-      return
-    }
+    landlordSummary.total = total
+    landlordSummary.open = open
+    landlordSummary.completed = completed
+    landlordSummary.avgResolutionHours =
+      resolutionDurations.length > 0
+        ? resolutionDurations.reduce((sum, value) => sum + value, 0) / resolutionDurations.length
+        : 0
 
-    const ids = tickets.map((ticket) => ticket.id).filter(Boolean)
-    const events =
-      (ids.length &&
-        (await $fetch<SupportTicketEventRecord[]>(`${supabaseUrl}/rest/v1/support_ticket_events`, {
-          method: 'GET',
-          query: {
-            select: 'ticket_id,event_type,created_at,metadata',
-            ticket_id: buildInFilter(ids),
-            order: 'created_at.asc'
-          },
-          headers
-        }))) ||
-      []
+    landlordWatchmen.value = Array.from(watchmanMap.entries())
+      .map(([name, data]) => ({
+        name,
+        total: data.total,
+        completionRate: data.total ? (data.completed / data.total) * 100 : 0,
+        avgResolutionHours:
+          data.durations.length > 0
+            ? data.durations.reduce((sum, value) => sum + value, 0) / data.durations.length
+            : 0
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 4)
 
-    const eventsByTicket = events.reduce<Record<string, SupportTicketEventRecord[]>>((acc, event) => {
-      if (!acc[event.ticket_id]) {
-        acc[event.ticket_id] = []
-      }
+    landlordBuildings.value = Array.from(buildingMap.entries())
+      .map(([name, data]) => ({
+        name,
+        total: data.total,
+        open: data.open
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 4)
 
-      acc[event.ticket_id].push(event)
-      return acc
-    }, {})
-
-    complaintTimelines.value = tickets.map((ticket) => {
-      const ticketEvents = eventsByTicket[ticket.id] || []
-
-      return {
-        id: ticket.id,
-        title: ticket.title || 'Untitled ticket',
-        status: ticket.status || 'OPEN',
-        created_at: ticket.created_at,
-        events: buildTimelineEvents(ticket, ticketEvents),
-        readReceipt: buildReadReceipt(ticketEvents)
-      }
+    landlordEscalated.value = escalatedTickets.sort((a, b) => {
+      const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
+      const bDate = b.created_at ? new Date(b.created_at).getTime() : 0
+      return bDate - aDate
     })
   } catch (error) {
-    const err = error as { data?: { message?: string; error_description?: string }; message?: string }
-    timelineError.value =
-      err?.data?.message ?? err?.data?.error_description ?? err?.message ?? 'Unable to load complaint timelines.'
+    const err = error as { data?: { message?: string }; message?: string }
+    landlordMetricsError.value = err?.data?.message ?? err?.message ?? 'Unable to load landlord metrics.'
   } finally {
-    timelineLoading.value = false
+    landlordMetricsLoading.value = false
   }
 }
 
@@ -680,6 +734,7 @@ onMounted(async () => {
   const storedToken = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
   role.value = localStorage.getItem(SUPABASE_USER_ROLE_KEY) || ''
   supabaseToken.value = storedToken || ''
+  landlordUserId.value = localStorage.getItem(SUPABASE_USER_ID_KEY) || ''
 
   if (!storedToken) {
     errorMessage.value = 'You are not signed in. Please log in first.'
@@ -706,6 +761,10 @@ onMounted(async () => {
   counts.support_tickets = supportTicketsResult.count || 0
 
   errorMessage.value = tenantResult.error || watchmanResult.error || supportTicketsResult.error || ''
+
+  if (role.value === 'LANDLORD') {
+    await loadLandlordTransparencyData(storedToken, landlordUserId.value)
+  }
 })
 </script>
 
@@ -751,6 +810,20 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+.hero-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hero-card__headline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .hero-card__copy p {
   margin: 0 0 1.25rem;
   color: rgba(255, 255, 255, 0.92);
@@ -759,8 +832,8 @@ onMounted(async () => {
 .hero-card__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }
 
 .hero-highlights {
@@ -915,6 +988,211 @@ onMounted(async () => {
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
 }
 
+.hero-card__transparency {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 1.2rem;
+  padding: 1.2rem;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.transparency-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.transparency-header span {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.transparency-header p {
+  margin: 0.2rem 0 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+}
+
+.transparency-mini-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.transparency-pill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.65rem;
+}
+
+.pill {
+  border-radius: 0.9rem;
+  padding: 0.65rem 0.85rem;
+  color: var(--color-carbon-black-900);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.pill span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pill strong {
+  font-size: 1.35rem;
+}
+
+.pill.accent-gold {
+  background: var(--color-sunflower-gold-400);
+}
+
+.pill.accent-rose {
+  background: #fecdd3;
+}
+
+.pill.accent-teal {
+  background: #a7f3d0;
+}
+
+.pill.accent-indigo {
+  background: var(--color-indigo-velvet-400);
+  color: #fff;
+}
+
+.transparency-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+}
+
+.mini-panel {
+  border-radius: 0.9rem;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.mini-panel--wide {
+  grid-column: span 2;
+}
+
+.mini-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.mini-panel__header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #fff;
+}
+
+.mini-panel__header small {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.mini-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.mini-panel li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  color: #fff;
+}
+
+.mini-panel small {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.empty-escalation-text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+}
+
+.escalation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.escalation-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.escalation-list li:last-child {
+  border-bottom: none;
+}
+
+.escalation-list small {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.escalation-list p {
+  margin: 0.35rem 0 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+}
+
+.escalation-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-end;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.85rem;
+}
+
+.escalation-list.modal {
+  color: var(--color-carbon-black-900);
+}
+
+.escalation-list.modal li {
+  border-bottom: 1px solid var(--color-soft-linen-200);
+}
+
+.escalation-list.modal small {
+  color: var(--color-carbon-black-600);
+}
+
+.escalation-list.modal p {
+  color: var(--color-carbon-black-700);
+}
+
+.escalation-meta span {
+  font-size: 0.8rem;
+}
+
+.escalation-dialog :deep(.p-dialog-content) {
+  padding-bottom: 1.5rem;
+}
+
 .insight,
 .ticket {
   display: flex;
@@ -950,125 +1228,6 @@ onMounted(async () => {
 
 .actions-grid :deep(.p-button) {
   width: 100%;
-}
-
-.complaint-dialog .timeline-loading {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.complaint-modal-trigger {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.complaint-timelines {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.complaint-ticket {
-  padding: 1rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 1rem;
-  background: #f8fafc;
-}
-
-.complaint-ticket .ticket-headline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.85rem;
-}
-
-.complaint-ticket .ticket-headline__meta small {
-  display: block;
-  margin-top: 0.2rem;
-  color: #475569;
-  font-size: 0.85rem;
-}
-
-.complaint-ticket .ticket-headline__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: flex-start;
-}
-
-.complaint-ticket .ticket-headline p {
-  margin: 0.25rem 0 0;
-  color: #475569;
-  font-size: 0.9rem;
-}
-
-.timeline-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.timeline-event {
-  display: flex;
-  gap: 0.8rem;
-  position: relative;
-}
-
-.timeline-dot {
-  width: 14px;
-  height: 14px;
-  margin-top: 4px;
-  border-radius: 50%;
-  background: #94a3b8;
-  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
-}
-
-.timeline-dot.variant-muted {
-  background: #94a3b8;
-  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
-}
-
-.timeline-dot.variant-primary {
-  background: #f97316;
-  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
-}
-
-.timeline-dot.variant-info {
-  background: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
-}
-
-.timeline-dot.variant-warning {
-  background: #f59e0b;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
-}
-
-.timeline-dot.variant-success {
-  background: #22c55e;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
-}
-
-.timeline-event__label {
-  font-weight: 600;
-  margin-bottom: 0.1rem;
-  color: #0f172a;
-}
-
-.timeline-event small {
-  display: block;
-  margin-bottom: 0.25rem;
-  color: #64748b;
-}
-
-.timeline-event p {
-  margin: 0;
-  color: #475569;
-  font-size: 0.92rem;
 }
 
 @media (max-width: 640px) {

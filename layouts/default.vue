@@ -2,10 +2,10 @@
   <div :class="['app-shell', { 'no-sidebar': !isAuthenticated }]">
     <aside v-if="isAuthenticated" class="side-nav">
       <div class="brand">
-        <span class="brand-badge">HT</span>
+        <span class="brand-badge">H</span>
         <div>
-          <p class="brand-title">Happy Tenant</p>
-          <small>Ops Console</small>
+          <p class="brand-title">{{ displayName }}</p>
+          <small>{{ displayRole }}</small>
         </div>
       </div>
 
@@ -49,6 +49,9 @@ const route = useRoute()
 
 const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD'
 
+const displayName = ref('Happy Tenant')
+const displayRole = ref('Ops Console')
+
 const syncAuthState = () => {
   if (!process.client) {
     return
@@ -56,7 +59,10 @@ const syncAuthState = () => {
 
   const token = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY)
   const role = localStorage.getItem(SUPABASE_USER_ROLE_KEY)
+  const email = localStorage.getItem('supabase.user.email')
   authState.value = Boolean(token && isRoleAllowed(role))
+  displayRole.value = role === 'LANDLORD' ? 'Landlord' : role ? role : 'Guest'
+  displayName.value = email || 'Happy Tenant'
 
   if (!authState.value && route.path !== '/login') {
     navigateTo('/login')
@@ -68,6 +74,7 @@ const handleLogout = () => {
     localStorage.removeItem(SUPABASE_ACCESS_TOKEN_KEY)
     localStorage.removeItem(SUPABASE_USER_ROLE_KEY)
     localStorage.removeItem(SUPABASE_USER_ID_KEY)
+    localStorage.removeItem('supabase.user.email')
   }
 
   authState.value = false
