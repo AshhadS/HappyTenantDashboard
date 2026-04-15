@@ -26,6 +26,10 @@
           <i class="pi pi-inbox"></i>
           <span>Support Tickets</span>
         </NuxtLink>
+        <NuxtLink to="/buildings" class="nav-link" active-class="is-active">
+          <i class="pi pi-building"></i>
+          <span>Buildings</span>
+        </NuxtLink>
       </nav>
 
       <div class="nav-footer">
