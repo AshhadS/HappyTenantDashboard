@@ -357,8 +357,42 @@ export const useBuildingTrust = () => {
         }
       )
 
+      const metrics = profile?.metrics ? normalizeMetrics(profile.metrics) : null
+      const missingScoreBreakdown =
+        metrics &&
+        [metrics.view_score, metrics.response_score, metrics.resolution_score, metrics.completion_score, metrics.verification_score].every(
+          (value) => value == null
+        )
+
+      if (metrics && missingScoreBreakdown) {
+        const scoreRows = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/building_transparency_metrics`, {
+          method: 'GET',
+          query: {
+            select:
+              'view_score,response_score,resolution_score,completion_score,verification_score,reopened_penalty,overdue_penalty',
+            building_id: `eq.${buildingId}`,
+            order: 'calculated_at.desc',
+            limit: 1
+          },
+          headers: buildHeaders(supabaseAnonKey, accessToken)
+        })
+
+        const score = scoreRows?.[0]
+        if (score) {
+          metrics.view_score = score.view_score == null ? metrics.view_score : toNumber(score.view_score)
+          metrics.response_score = score.response_score == null ? metrics.response_score : toNumber(score.response_score)
+          metrics.resolution_score = score.resolution_score == null ? metrics.resolution_score : toNumber(score.resolution_score)
+          metrics.completion_score = score.completion_score == null ? metrics.completion_score : toNumber(score.completion_score)
+          metrics.verification_score =
+            score.verification_score == null ? metrics.verification_score : toNumber(score.verification_score)
+          metrics.reopened_penalty =
+            score.reopened_penalty == null ? metrics.reopened_penalty : toNumber(score.reopened_penalty)
+          metrics.overdue_penalty = score.overdue_penalty == null ? metrics.overdue_penalty : toNumber(score.overdue_penalty)
+        }
+      }
+
       const data: BuildingTrustProfile = {
-        metrics: profile?.metrics ? normalizeMetrics(profile.metrics) : null,
+        metrics,
         badges: (profile?.badges || []).map((badge) => normalizeBadge(badge))
       }
 
@@ -417,9 +451,88 @@ export const useBuildingTrust = () => {
     }
   }
 
+  const refreshBuildingTransparencyScore = async (
+    accessToken: string,
+    buildingId: string,
+    windowDays = 30
+  ): Promise<{ error: string | null }> => {
+    const configError = getConfigError()
+    if (configError) {
+      return { error: configError }
+    }
+
+    if (!buildingId) {
+      return { error: 'Building id is required.' }
+    }
+
+    if (!accessToken) {
+      return { error: 'You are not signed in.' }
+    }
+
+    try {
+      await $fetch(`${supabaseUrl}/rest/v1/rpc/refresh_building_transparency_score`, {
+        method: 'POST',
+        body: {
+          p_building_id: buildingId,
+          p_window_days: windowDays
+        },
+        headers: buildHeaders(supabaseAnonKey, accessToken)
+      })
+
+      return { error: null }
+    } catch (error) {
+      const err = error as { data?: SupabaseApiError; message?: string }
+      return {
+        error:
+          err?.data?.message ??
+          err?.data?.error_description ??
+          err?.message ??
+          'Unable to refresh building score.'
+      }
+    }
+  }
+
+  const refreshBuildingTrustBadges = async (accessToken: string, buildingId: string): Promise<{ error: string | null }> => {
+    const configError = getConfigError()
+    if (configError) {
+      return { error: configError }
+    }
+
+    if (!buildingId) {
+      return { error: 'Building id is required.' }
+    }
+
+    if (!accessToken) {
+      return { error: 'You are not signed in.' }
+    }
+
+    try {
+      await $fetch(`${supabaseUrl}/rest/v1/rpc/refresh_building_trust_badges`, {
+        method: 'POST',
+        body: {
+          p_building_id: buildingId
+        },
+        headers: buildHeaders(supabaseAnonKey, accessToken)
+      })
+
+      return { error: null }
+    } catch (error) {
+      const err = error as { data?: SupabaseApiError; message?: string }
+      return {
+        error:
+          err?.data?.message ??
+          err?.data?.error_description ??
+          err?.message ??
+          'Unable to refresh building badges.'
+      }
+    }
+  }
+
   return {
     fetchBuildingListing,
     fetchBuildingTrustProfile,
-    fetchBuildingScoreHistory
+    fetchBuildingScoreHistory,
+    refreshBuildingTransparencyScore,
+    refreshBuildingTrustBadges
   }
 }

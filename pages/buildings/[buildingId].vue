@@ -1,11 +1,13 @@
 <template>
   <main class="building-detail-page">
+    <Toast position="top-right" />
     <div class="page-shell">
       <div class="detail-breadcrumb">
         <Button label="Buildings" icon="pi pi-arrow-left" text severity="secondary" @click="router.push('/buildings')" />
       </div>
 
       <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
+      <Message v-else-if="permissionsError" severity="warn" :closable="false">{{ permissionsError }}</Message>
 
       <div v-else-if="loading" class="detail-loading">
         <Card v-for="index in 4" :key="`detail-skeleton-${index}`">
@@ -33,6 +35,58 @@
                   <BuildingReliabilityTag :label="reliabilityState" />
                 </div>
                 <small>Calculated {{ formatDateTime(metrics.calculated_at) }}</small>
+              </div>
+            </div>
+          </template>
+        </Card>
+
+        <Card class="section-card actions-card">
+          <template #title>Actions</template>
+          <template #content>
+            <div class="actions-card__layout">
+              <div class="actions-card__buttons">
+                <Button
+                  v-if="permissions.canRefreshScore"
+                  label="Refresh Score"
+                  icon="pi pi-refresh"
+                  severity="info"
+                  :loading="refreshScoreLoading"
+                  :disabled="refreshScoreLoading || refreshBadgesLoading"
+                  @click="handleRefreshScore"
+                />
+                <Button
+                  v-if="permissions.canRefreshBadges"
+                  label="Refresh Badges"
+                  icon="pi pi-star"
+                  severity="warning"
+                  :loading="refreshBadgesLoading"
+                  :disabled="refreshBadgesLoading || refreshScoreLoading"
+                  @click="handleRefreshBadges"
+                />
+                <Button
+                  v-if="permissions.canViewHistory"
+                  label="View Score History"
+                  icon="pi pi-chart-line"
+                  severity="secondary"
+                  outlined
+                  @click="scrollToHistory"
+                />
+                <Button
+                  v-if="permissions.canCopyBuildingId"
+                  label="Copy Building ID"
+                  icon="pi pi-copy"
+                  severity="contrast"
+                  outlined
+                  :loading="copyBuildingIdLoading"
+                  :disabled="copyBuildingIdLoading"
+                  @click="copyBuildingId"
+                />
+              </div>
+              <div class="actions-card__meta">
+                <small>Last calculated: {{ formatDateTime(metrics.calculated_at) }}</small>
+                <small v-if="permissions.isAuthenticated && !permissions.canRefreshScore">
+                  You can view this trust profile, but only the owning landlord can refresh score and badges.
+                </small>
               </div>
             </div>
           </template>
@@ -123,11 +177,14 @@
               <div v-for="item in scoreBreakdown" :key="item.label" class="breakdown-item">
                 <div class="breakdown-item__head">
                   <span>{{ item.label }}</span>
-                  <strong>{{ item.value.toFixed(1) }}</strong>
+                  <strong>{{ item.displayValue }}</strong>
                 </div>
                 <ProgressBar :value="item.progress" :showValue="false" />
               </div>
             </div>
+            <Message v-if="limitedBreakdownData" severity="info" :closable="false">
+              Some timing-based score components are hidden because this building has limited confidence/data volume.
+            </Message>
             <Message severity="secondary" :closable="false">
               Penalties are deducted from the total when reopening and overdue rates increase.
             </Message>
@@ -144,28 +201,31 @@
           </template>
         </Card>
 
-        <Card class="section-card">
-          <template #title>Score History</template>
-          <template #content>
-            <div v-if="!history.length" class="section-empty">No score history recorded yet.</div>
-            <ul v-else class="history-list">
-              <li v-for="point in history" :key="point.id">
-                <div>
-                  <strong>{{ formatDateTime(point.calculated_at) }}</strong>
-                  <small>{{ confidenceLabel(point.confidence_score) }}</small>
-                </div>
-                <Tag :value="point.transparency_score.toFixed(1)" severity="info" rounded />
-              </li>
-            </ul>
-          </template>
-        </Card>
+        <section id="score-history" ref="historySectionRef">
+          <Card class="section-card">
+            <template #title>Score History</template>
+            <template #content>
+              <div v-if="!history.length" class="section-empty">No score history recorded yet.</div>
+              <ul v-else class="history-list">
+                <li v-for="point in history" :key="point.id">
+                  <div>
+                    <strong>{{ formatDateTime(point.calculated_at) }}</strong>
+                    <small>{{ confidenceLabel(point.confidence_score) }}</small>
+                  </div>
+                  <Tag :value="point.transparency_score.toFixed(1)" severity="info" rounded />
+                </li>
+              </ul>
+            </template>
+          </Card>
+        </section>
       </template>
     </div>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useToast } from 'primevue/usetoast'
 import {
   confidenceLabel,
   formatDateTime,
@@ -174,6 +234,7 @@ import {
   reliabilityLabel,
   useBuildingTrust
 } from '~/composables/useBuildingTrust'
+import { useBuildingTrustPermissions } from '~/composables/useBuildingTrustPermissions'
 import type { BuildingScoreHistoryPoint, BuildingTransparencyMetrics, BuildingTrustBadge } from '~/types/buildingTrust'
 import { SUPABASE_ACCESS_TOKEN_KEY } from '~/composables/useSupabaseAuth'
 import BuildingScoreRing from '~/components/buildings/ScoreRing.vue'
@@ -182,13 +243,20 @@ import BuildingReliabilityTag from '~/components/buildings/ReliabilityTag.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { fetchBuildingScoreHistory, fetchBuildingTrustProfile } = useBuildingTrust()
+const toast = useToast()
+const { fetchBuildingScoreHistory, fetchBuildingTrustProfile, refreshBuildingTransparencyScore, refreshBuildingTrustBadges } =
+  useBuildingTrust()
+const { permissions, errorMessage: permissionsError, resolvePermissions } = useBuildingTrustPermissions()
 
 const loading = ref(false)
 const errorMessage = ref('')
 const metrics = ref<BuildingTransparencyMetrics | null>(null)
 const badges = ref<BuildingTrustBadge[]>([])
 const history = ref<BuildingScoreHistoryPoint[]>([])
+const refreshScoreLoading = ref(false)
+const refreshBadgesLoading = ref(false)
+const copyBuildingIdLoading = ref(false)
+const historySectionRef = ref<HTMLElement | null>(null)
 
 const buildingId = computed(() => String(route.params.buildingId || ''))
 const reliabilityState = computed(() =>
@@ -237,33 +305,83 @@ const scoreBreakdown = computed(() => {
   }
 
   const rows = [
-    { label: 'View Score', value: metrics.value.view_score || 0, max: 20 },
-    { label: 'Response Score', value: metrics.value.response_score || 0, max: 20 },
-    { label: 'Resolution Score', value: metrics.value.resolution_score || 0, max: 20 },
-    { label: 'Completion Score', value: metrics.value.completion_score || 0, max: 20 },
-    { label: 'Verification Score', value: metrics.value.verification_score || 0, max: 20 },
-    { label: 'Reopened Penalty', value: -(metrics.value.reopened_penalty || 0), max: 20 },
-    { label: 'Overdue Penalty', value: -(metrics.value.overdue_penalty || 0), max: 20 }
+    { label: 'View Score', value: metrics.value.view_score, invert: false },
+    { label: 'Response Score', value: metrics.value.response_score, invert: false },
+    { label: 'Resolution Score', value: metrics.value.resolution_score, invert: false },
+    { label: 'Completion Score', value: metrics.value.completion_score, invert: false },
+    { label: 'Verification Score', value: metrics.value.verification_score, invert: false },
+    { label: 'Reopened Penalty', value: metrics.value.reopened_penalty, invert: true },
+    { label: 'Overdue Penalty', value: metrics.value.overdue_penalty, invert: true }
   ]
 
-  return rows.map((row) => ({
-    ...row,
-    progress: Math.max(0, Math.min(100, ((row.value + row.max) / (row.max * 2)) * 100))
-  }))
+  return rows.map((row) => {
+    const shouldHideForLimitedData =
+      !row.invert &&
+      ['View Score', 'Response Score', 'Resolution Score'].includes(row.label) &&
+      Number(row.value ?? 0) === 0 &&
+      limitedBreakdownData.value
+
+    return {
+      label: row.label,
+      value: row.value,
+      displayValue: (() => {
+      if (row.value == null) {
+        return '--'
+      }
+
+      if (shouldHideForLimitedData) {
+        return '--'
+      }
+
+      const numeric = Number(row.value)
+      if (row.invert) {
+        return numeric === 0 ? '0.0' : `-${numeric.toFixed(1)}`
+      }
+
+      return numeric.toFixed(1)
+      })(),
+      progress: (() => {
+      if (row.value == null) {
+        return 0
+      }
+
+      if (shouldHideForLimitedData) {
+        return 0
+      }
+
+      const numeric = Number(row.value)
+        const scaled = row.invert ? Math.abs(numeric) : numeric
+        return Math.max(0, Math.min(100, scaled))
+      })()
+    }
+  })
 })
 
-const loadDetail = async () => {
+const limitedBreakdownData = computed(() => {
+  if (!metrics.value) {
+    return false
+  }
+
+  return metrics.value.ticket_count < 3 || metrics.value.confidence_score < 50
+})
+
+const getAccessToken = () => (process.client ? localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY) || '' : '')
+
+const loadDetail = async (showLoadingState = true) => {
   if (!process.client) {
     return
   }
 
-  const token = localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY) || ''
+  const token = getAccessToken()
   if (!token) {
     errorMessage.value = 'You are not signed in.'
     return
   }
 
-  loading.value = true
+  if (showLoadingState) {
+    loading.value = true
+  }
+
   errorMessage.value = ''
 
   const [profileResult, historyResult] = await Promise.all([
@@ -275,10 +393,115 @@ const loadDetail = async () => {
   badges.value = profileResult.data?.badges || []
   history.value = historyResult.data || []
   errorMessage.value = profileResult.error || historyResult.error || (metrics.value ? '' : 'Building profile not found.')
-  loading.value = false
+  if (showLoadingState) {
+    loading.value = false
+  }
 }
 
-onMounted(loadDetail)
+const scrollToHistory = () => {
+  historySectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const copyBuildingId = async () => {
+  if (!buildingId.value) {
+    toast.add({ severity: 'warn', summary: 'Missing Building ID', detail: 'No building id was found.', life: 2600 })
+    return
+  }
+
+  if (!process.client) {
+    return
+  }
+
+  copyBuildingIdLoading.value = true
+  try {
+    await navigator.clipboard.writeText(buildingId.value)
+    toast.add({ severity: 'success', summary: 'Copied', detail: 'Building id copied to clipboard.', life: 2200 })
+  } catch {
+    toast.add({
+      severity: 'error',
+      summary: 'Copy Failed',
+      detail: 'Unable to copy building id in this browser session.',
+      life: 2600
+    })
+  } finally {
+    copyBuildingIdLoading.value = false
+  }
+}
+
+const handleRefreshScore = async () => {
+  if (!permissions.value.canRefreshScore) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Not Authorized',
+      detail: 'Only the owning landlord can refresh this building score.',
+      life: 2600
+    })
+    return
+  }
+
+  const token = getAccessToken()
+  if (!token) {
+    toast.add({ severity: 'error', summary: 'Not Signed In', detail: 'Please sign in and try again.', life: 2600 })
+    return
+  }
+
+  refreshScoreLoading.value = true
+  const result = await refreshBuildingTransparencyScore(token, buildingId.value, 30)
+  if (result.error) {
+    toast.add({ severity: 'error', summary: 'Refresh Failed', detail: result.error, life: 3200 })
+    refreshScoreLoading.value = false
+    return
+  }
+
+  await loadDetail(false)
+  toast.add({ severity: 'success', summary: 'Score Refreshed', detail: 'Building score and trust profile updated.', life: 2400 })
+  refreshScoreLoading.value = false
+}
+
+const handleRefreshBadges = async () => {
+  if (!permissions.value.canRefreshBadges) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Not Authorized',
+      detail: 'Only the owning landlord can refresh trust badges for this building.',
+      life: 2600
+    })
+    return
+  }
+
+  const token = getAccessToken()
+  if (!token) {
+    toast.add({ severity: 'error', summary: 'Not Signed In', detail: 'Please sign in and try again.', life: 2600 })
+    return
+  }
+
+  refreshBadgesLoading.value = true
+  const result = await refreshBuildingTrustBadges(token, buildingId.value)
+  if (result.error) {
+    toast.add({ severity: 'error', summary: 'Refresh Failed', detail: result.error, life: 3200 })
+    refreshBadgesLoading.value = false
+    return
+  }
+
+  await loadDetail(false)
+  toast.add({ severity: 'success', summary: 'Badges Refreshed', detail: 'Active trust badges were updated.', life: 2400 })
+  refreshBadgesLoading.value = false
+}
+
+onMounted(async () => {
+  await Promise.all([resolvePermissions(buildingId.value), loadDetail()])
+})
+
+watch(
+  () => buildingId.value,
+  async (next, previous) => {
+    if (!next || next === previous) {
+      return
+    }
+
+    await Promise.all([resolvePermissions(next), loadDetail()])
+  }
+)
 </script>
 
 <style scoped>
@@ -357,6 +580,31 @@ onMounted(loadDetail)
 .section-card :deep(.p-card-body) {
   border-radius: 1rem;
   padding: 1.1rem;
+}
+
+.actions-card__layout {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.actions-card__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.actions-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.actions-card__meta small {
+  color: var(--color-carbon-black-600);
 }
 
 .section-empty {
@@ -479,6 +727,11 @@ onMounted(loadDetail)
 
   .hero-right__meta {
     justify-content: flex-start;
+  }
+
+  .actions-card__meta {
+    align-items: flex-start;
+    text-align: left;
   }
 }
 </style>
