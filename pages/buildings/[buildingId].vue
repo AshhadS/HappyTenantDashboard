@@ -24,7 +24,21 @@
               <div class="hero-left">
                 <Tag value="Building Trust Profile" icon="pi pi-building" severity="warning" rounded />
                 <h1>{{ metrics.building_name || 'Unnamed Building' }}</h1>
-                <p class="building-id">{{ metrics.building_id }}</p>
+                <p class="building-id">
+                  <span>{{ metrics.building_id }}</span>
+                  <Button
+                    v-if="permissions.canCopyBuildingId"
+                    icon="pi pi-copy"
+                    text
+                    severity="secondary"
+                    rounded
+                    size="small"
+                    :loading="copyBuildingIdLoading"
+                    :disabled="copyBuildingIdLoading"
+                    aria-label="Copy Building ID"
+                    @click="copyBuildingId"
+                  />
+                </p>
                 <p class="summary-text">{{ summaryMessage }}</p>
               </div>
               <div class="hero-right">
@@ -34,7 +48,15 @@
                   <BuildingTrendPill :trend="metrics.trend_vs_previous" />
                   <BuildingReliabilityTag :label="reliabilityState" />
                 </div>
-                <small>Calculated {{ formatDateTime(metrics.calculated_at) }}</small>
+                <button
+                  v-if="permissions.canViewHistory"
+                  type="button"
+                  class="calculated-link"
+                  @click="scrollToHistory"
+                >
+                  Calculated {{ formatDateTime(metrics.calculated_at) }}
+                </button>
+                <small v-else>Calculated {{ formatDateTime(metrics.calculated_at) }}</small>
               </div>
             </div>
           </template>
@@ -63,31 +85,8 @@
                   :disabled="refreshBadgesLoading || refreshScoreLoading"
                   @click="handleRefreshBadges"
                 />
-                <Button
-                  v-if="permissions.canViewHistory"
-                  label="View Score History"
-                  icon="pi pi-chart-line"
-                  severity="secondary"
-                  outlined
-                  @click="scrollToHistory"
-                />
-                <Button
-                  v-if="permissions.canCopyBuildingId"
-                  label="Copy Building ID"
-                  icon="pi pi-copy"
-                  severity="contrast"
-                  outlined
-                  :loading="copyBuildingIdLoading"
-                  :disabled="copyBuildingIdLoading"
-                  @click="copyBuildingId"
-                />
               </div>
-              <div class="actions-card__meta">
-                <small>Last calculated: {{ formatDateTime(metrics.calculated_at) }}</small>
-                <small v-if="permissions.isAuthenticated && !permissions.canRefreshScore">
-                  You can view this trust profile, but only the owning landlord can refresh score and badges.
-                </small>
-              </div>
+              
             </div>
           </template>
         </Card>
@@ -107,87 +106,153 @@
         </Card>
 
         <Card class="section-card">
-          <template #title>Key Metrics</template>
-          <template #content>
-            <div class="metrics-grid">
-              <div class="metric-box">
-                <span>Total Tickets</span>
-                <strong>{{ metrics.ticket_count }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Completed Tickets</span>
-                <strong>{{ metrics.completed_count }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Verified Tickets</span>
-                <strong>{{ metrics.verified_count }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Reopened Tickets</span>
-                <strong>{{ metrics.reopened_count }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Overdue Tickets</span>
-                <strong>{{ metrics.overdue_count }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Completion Rate</span>
-                <strong>{{ formatPercent(metrics.completion_rate) }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Verification Rate</span>
-                <strong>{{ formatPercent(metrics.verification_rate) }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Reopened Rate</span>
-                <strong>{{ formatPercent(metrics.reopened_rate) }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Overdue Rate</span>
-                <strong>{{ formatPercent(metrics.overdue_rate) }}</strong>
-              </div>
-            </div>
-          </template>
-        </Card>
-
-        <Card class="section-card">
-          <template #title>Performance Timing</template>
-          <template #content>
-            <div class="timing-grid">
-              <div class="metric-box">
-                <span>Average First View</span>
-                <strong>{{ formatMinutes(metrics.avg_first_view_minutes) }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Average First Response</span>
-                <strong>{{ formatMinutes(metrics.avg_first_response_minutes) }}</strong>
-              </div>
-              <div class="metric-box">
-                <span>Average Resolution</span>
-                <strong>{{ formatMinutes(metrics.avg_resolution_minutes) }}</strong>
-              </div>
-            </div>
-          </template>
-        </Card>
-
-        <Card class="section-card">
           <template #title>Score Breakdown</template>
           <template #content>
-            <div class="breakdown-list">
-              <div v-for="item in scoreBreakdown" :key="item.label" class="breakdown-item">
-                <div class="breakdown-item__head">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.displayValue }}</strong>
+            <div class="breakdown-subsection">
+              <h4>Key Metrics</h4>
+              <div class="metrics-grid metrics-grid--compact">
+                <div class="metric-box">
+                  <span>Total Tickets</span>
+                  <strong>{{ metrics.ticket_count }}</strong>
                 </div>
-                <ProgressBar :value="item.progress" :showValue="false" />
+                <div class="metric-box">
+                  <span>Completion Rate</span>
+                  <strong>{{ formatPercent(metrics.completion_rate) }}</strong>
+                </div>
+                <div class="metric-box">
+                  <span>Verification Rate</span>
+                  <strong>{{ formatPercent(metrics.verification_rate) }}</strong>
+                </div>
+                <div class="metric-box">
+                  <span>Overdue Tickets</span>
+                  <strong>{{ metrics.overdue_count }}</strong>
+                </div>
               </div>
             </div>
-            <Message v-if="limitedBreakdownData" severity="info" :closable="false">
-              Some timing-based score components are hidden because this building has limited confidence/data volume.
-            </Message>
-            <Message severity="secondary" :closable="false">
-              Penalties are deducted from the total when reopening and overdue rates increase.
-            </Message>
+
+            <div class="breakdown-subsection">
+              <h4>Performance Timing</h4>
+              <div class="timing-grid">
+                <div class="metric-box">
+                  <span>Average First View</span>
+                  <strong>{{ formatMinutes(metrics.avg_first_view_minutes) }}</strong>
+                </div>
+                <div class="metric-box">
+                  <span>Average First Response</span>
+                  <strong>{{ formatMinutes(metrics.avg_first_response_minutes) }}</strong>
+                </div>
+                <div class="metric-box">
+                  <span>Average Resolution</span>
+                  <strong>{{ formatMinutes(metrics.avg_resolution_minutes) }}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="score-derived-summary">
+              <div class="derived-pill">
+                <span>Final Transparency Score</span>
+                <strong>{{ metrics.transparency_score.toFixed(1) }}</strong>
+              </div>
+              <div class="derived-pill derived-pill--soft">
+                <span>Positive Signal Avg</span>
+                <strong>{{ positiveSignalAverage }}</strong>
+              </div>
+              <div class="derived-pill derived-pill--soft">
+                <span>Total Penalties</span>
+                <strong>{{ totalPenaltyDisplay }}</strong>
+              </div>
+              <div class="derived-pill derived-pill--soft">
+                <span>Confidence</span>
+                <strong>{{ confidenceLabel(metrics.confidence_score) }}</strong>
+              </div>
+            </div>
+
+            <div v-if="!showBreakdownDetails" class="breakdown-toggle">
+              <Button
+                label="See More Details"
+                icon="pi pi-angle-down"
+                iconPos="right"
+                text
+                severity="secondary"
+                @click="showBreakdownDetails = true"
+              />
+            </div>
+
+            <div v-if="showBreakdownDetails" class="breakdown-expanded">
+              <div class="breakdown-subsection">
+                <h4>More Metrics</h4>
+                <div class="metrics-grid">
+                  <div class="metric-box">
+                    <span>Total Tickets</span>
+                    <strong>{{ metrics.ticket_count }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Completed Tickets</span>
+                    <strong>{{ metrics.completed_count }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Verified Tickets</span>
+                    <strong>{{ metrics.verified_count }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Reopened Tickets</span>
+                    <strong>{{ metrics.reopened_count }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Overdue Tickets</span>
+                    <strong>{{ metrics.overdue_count }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Completion Rate</span>
+                    <strong>{{ formatPercent(metrics.completion_rate) }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Verification Rate</span>
+                    <strong>{{ formatPercent(metrics.verification_rate) }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Reopened Rate</span>
+                    <strong>{{ formatPercent(metrics.reopened_rate) }}</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span>Overdue Rate</span>
+                    <strong>{{ formatPercent(metrics.overdue_rate) }}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="breakdown-list">
+                <div
+                  v-for="item in scoreBreakdown"
+                  :key="item.key"
+                  class="breakdown-item"
+                  :title="item.explanation"
+                  tabindex="0"
+                >
+                  <div class="breakdown-item__head">
+                    <span>{{ item.label }} <small>({{ item.source }})</small></span>
+                    <strong>{{ item.displayValue }}</strong>
+                  </div>
+                  <ProgressBar :value="item.progress" :showValue="false" />
+                </div>
+              </div>
+              <Message v-if="limitedBreakdownData" severity="info" :closable="false">
+                Some timing-based score components are hidden because this building has limited confidence/data volume.
+              </Message>
+              <Message severity="secondary" :closable="false">
+                Penalties are deducted from the total when reopening and overdue rates increase.
+              </Message>
+            </div>
+            <div v-if="showBreakdownDetails" class="breakdown-toggle breakdown-toggle--bottom">
+              <Button
+                label="See Less"
+                icon="pi pi-angle-up"
+                iconPos="right"
+                text
+                severity="secondary"
+                @click="showBreakdownDetails = false"
+              />
+            </div>
           </template>
         </Card>
 
@@ -207,7 +272,7 @@
             <template #content>
               <div v-if="!history.length" class="section-empty">No score history recorded yet.</div>
               <ul v-else class="history-list">
-                <li v-for="point in history" :key="point.id">
+                <li v-for="point in visibleHistory" :key="point.id">
                   <div>
                     <strong>{{ formatDateTime(point.calculated_at) }}</strong>
                     <small>{{ confidenceLabel(point.confidence_score) }}</small>
@@ -215,6 +280,16 @@
                   <Tag :value="point.transparency_score.toFixed(1)" severity="info" rounded />
                 </li>
               </ul>
+              <div v-if="hasMoreHistory" class="history-actions">
+                <Button
+                  :label="showAllHistory ? 'See Less' : 'See More'"
+                  :icon="showAllHistory ? 'pi pi-angle-up' : 'pi pi-angle-down'"
+                  iconPos="right"
+                  text
+                  severity="secondary"
+                  @click="showAllHistory = !showAllHistory"
+                />
+              </div>
             </template>
           </Card>
         </section>
@@ -257,6 +332,8 @@ const refreshScoreLoading = ref(false)
 const refreshBadgesLoading = ref(false)
 const copyBuildingIdLoading = ref(false)
 const historySectionRef = ref<HTMLElement | null>(null)
+const showAllHistory = ref(false)
+const showBreakdownDetails = ref(false)
 
 const buildingId = computed(() => String(route.params.buildingId || ''))
 const reliabilityState = computed(() =>
@@ -305,13 +382,62 @@ const scoreBreakdown = computed(() => {
   }
 
   const rows = [
-    { label: 'View Score', value: metrics.value.view_score, invert: false },
-    { label: 'Response Score', value: metrics.value.response_score, invert: false },
-    { label: 'Resolution Score', value: metrics.value.resolution_score, invert: false },
-    { label: 'Completion Score', value: metrics.value.completion_score, invert: false },
-    { label: 'Verification Score', value: metrics.value.verification_score, invert: false },
-    { label: 'Reopened Penalty', value: metrics.value.reopened_penalty, invert: true },
-    { label: 'Overdue Penalty', value: metrics.value.overdue_penalty, invert: true }
+    {
+      key: 'view_score',
+      label: 'View Score',
+      source: 'Avg First View Time',
+      explanation: 'Faster first-view times increase this score.',
+      value: metrics.value.view_score,
+      invert: false
+    },
+    {
+      key: 'response_score',
+      label: 'Response Score',
+      source: 'Avg First Response Time',
+      explanation: 'Faster first-response times increase this score.',
+      value: metrics.value.response_score,
+      invert: false
+    },
+    {
+      key: 'resolution_score',
+      label: 'Resolution Score',
+      source: 'Avg Resolution Time',
+      explanation: 'Faster issue resolution increases this score.',
+      value: metrics.value.resolution_score,
+      invert: false
+    },
+    {
+      key: 'completion_score',
+      label: 'Completion Score',
+      source: 'Completion Rate',
+      explanation: 'More completed tickets increase this score.',
+      value: metrics.value.completion_score,
+      invert: false
+    },
+    {
+      key: 'verification_score',
+      label: 'Verification Score',
+      source: 'Verification Rate',
+      explanation: 'More tenant-verified outcomes increase this score.',
+      value: metrics.value.verification_score,
+      invert: false
+    },
+    {
+      key: 'reopened_penalty',
+      label: 'Reopened Penalty',
+      source: 'Reopened Rate',
+      explanation: 'Higher reopen rates deduct from the final score.',
+      value: metrics.value.reopened_penalty,
+      invert: true
+    },
+    {
+      key: 'overdue_penalty',
+      label: 'Overdue Penalty',
+      source: 'Overdue Rate',
+      explanation: 'Higher overdue rates deduct from the final score.',
+      value: metrics.value.overdue_penalty,
+      invert: true
+    }
   ]
 
   return rows.map((row) => {
@@ -322,8 +448,14 @@ const scoreBreakdown = computed(() => {
       limitedBreakdownData.value
 
     return {
+      key: row.key,
       label: row.label,
+      source: row.source,
+      explanation: row.explanation,
+      invert: row.invert,
       value: row.value,
+      hiddenForLimitedData: shouldHideForLimitedData,
+      numericValue: row.value == null ? null : Number(row.value),
       displayValue: (() => {
       if (row.value == null) {
         return '--'
@@ -365,6 +497,40 @@ const limitedBreakdownData = computed(() => {
   return metrics.value.ticket_count < 3 || metrics.value.confidence_score < 50
 })
 
+const positiveScoreItems = computed(() =>
+  scoreBreakdown.value.filter((item) => !item.invert && !item.hiddenForLimitedData && item.numericValue != null)
+)
+
+const penaltyScoreItems = computed(() =>
+  scoreBreakdown.value.filter((item) => item.invert && item.numericValue != null)
+)
+
+const positiveSignalAverage = computed(() => {
+  if (!positiveScoreItems.value.length) {
+    return '--'
+  }
+
+  const total = positiveScoreItems.value.reduce((sum, item) => sum + Number(item.numericValue || 0), 0)
+  return (total / positiveScoreItems.value.length).toFixed(1)
+})
+
+const totalPenaltyDisplay = computed(() => {
+  if (!penaltyScoreItems.value.length) {
+    return '0.0'
+  }
+
+  const total = penaltyScoreItems.value.reduce((sum, item) => sum + Math.max(0, Number(item.numericValue || 0)), 0)
+  return total.toFixed(1)
+})
+
+const sortedHistory = computed(() =>
+  [...history.value].sort((a, b) => new Date(b.calculated_at).getTime() - new Date(a.calculated_at).getTime())
+)
+
+const hasMoreHistory = computed(() => sortedHistory.value.length > 2)
+
+const visibleHistory = computed(() => (showAllHistory.value ? sortedHistory.value : sortedHistory.value.slice(0, 2)))
+
 const getAccessToken = () => (process.client ? localStorage.getItem(SUPABASE_ACCESS_TOKEN_KEY) || '' : '')
 
 const loadDetail = async (showLoadingState = true) => {
@@ -392,6 +558,8 @@ const loadDetail = async (showLoadingState = true) => {
   metrics.value = profileResult.data?.metrics || null
   badges.value = profileResult.data?.badges || []
   history.value = historyResult.data || []
+  showAllHistory.value = false
+  showBreakdownDetails.value = false
   errorMessage.value = profileResult.error || historyResult.error || (metrics.value ? '' : 'Building profile not found.')
   if (showLoadingState) {
     loading.value = false
@@ -552,6 +720,9 @@ watch(
   font-size: 0.85rem;
   color: rgba(243, 244, 241, 0.72);
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
 }
 
 .summary-text {
@@ -575,6 +746,17 @@ watch(
 
 .hero-right small {
   color: rgba(243, 244, 241, 0.75);
+}
+
+.calculated-link {
+  border: 0;
+  background: transparent;
+  color: rgba(243, 244, 241, 0.75);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 0.12rem;
+  cursor: pointer;
+  padding: 0;
 }
 
 .section-card :deep(.p-card-body) {
@@ -646,6 +828,20 @@ watch(
   gap: 0.6rem;
 }
 
+.metrics-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.breakdown-subsection {
+  margin-bottom: 0.8rem;
+}
+
+.breakdown-subsection h4 {
+  margin: 0 0 0.45rem;
+  color: var(--color-carbon-black-800);
+  font-size: 0.95rem;
+}
+
 .metric-box {
   border: 1px solid var(--color-soft-linen-200);
   border-radius: 0.8rem;
@@ -673,11 +869,76 @@ watch(
   margin-bottom: 0.7rem;
 }
 
+.score-derived-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.breakdown-toggle {
+  display: flex;
+  justify-content: center;
+  margin: 0.1rem 0 0.55rem;
+}
+
+.breakdown-expanded {
+  border-top: 1px solid var(--color-soft-linen-200);
+  padding-top: 0.7rem;
+}
+
+.breakdown-toggle--bottom {
+  margin: 0.45rem 0 0;
+}
+
+.derived-pill {
+  border: 1px solid var(--color-soft-linen-200);
+  background: #fff;
+  border-radius: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.derived-pill--soft {
+  background: var(--color-soft-linen-50);
+}
+
+.derived-pill span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-carbon-black-600);
+}
+
+.derived-pill strong {
+  font-size: 1.05rem;
+  color: var(--color-carbon-black-800);
+}
+
 .breakdown-item__head {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
   margin-bottom: 0.25rem;
   color: var(--color-carbon-black-700);
+}
+
+.breakdown-item__head small {
+  color: var(--color-carbon-black-500);
+  font-size: 0.72rem;
+}
+
+.breakdown-item {
+  cursor: help;
+}
+
+.breakdown-item:focus-visible {
+  outline: 2px solid var(--color-indigo-velvet-400);
+  outline-offset: 4px;
+  border-radius: 0.35rem;
 }
 
 .reliability-panel {
@@ -718,6 +979,12 @@ watch(
 
 .history-list small {
   color: var(--color-carbon-black-500);
+}
+
+.history-actions {
+  margin-top: 0.35rem;
+  display: flex;
+  justify-content: center;
 }
 
 @media (max-width: 760px) {
