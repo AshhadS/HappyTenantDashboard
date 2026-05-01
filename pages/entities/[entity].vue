@@ -86,6 +86,21 @@
                         {{ formatCell(data[column.field], column.field) }}
                       </span>
                     </template>
+                    <template v-else-if="isSupportTicketView && column.field === 'title'">
+                      <div class="ticket-title-cell">
+                        <span>{{ formatCell(data[column.field], column.field) }}</span>
+                        <div class="ticket-iot-badges" v-if="getTicketIotBadges(data).length">
+                          <Tag
+                            v-for="badge in getTicketIotBadges(data)"
+                            :key="`${badge.label}-${badge.severity}`"
+                            :value="badge.label"
+                            :severity="badge.severity"
+                            rounded
+                            class="iot-badge"
+                          />
+                        </div>
+                      </div>
+                    </template>
                     <template v-else-if="isSupportTicketView && column.field === 'status'">
                       <Tag
                         :value="formatCell(data[column.field], column.field)"
@@ -142,6 +157,14 @@
                   rounded
                 />
                 <Tag
+                  v-for="badge in getTicketIotBadges(detailRecord || {})"
+                  :key="`detail-${badge.label}-${badge.severity}`"
+                  :value="badge.label"
+                  :severity="badge.severity"
+                  rounded
+                  class="ticket-priority-tag"
+                />
+                <Tag
                   v-if="ticketDetail.priority && ticketDetail.priority !== '--'"
                   :value="`Priority: ${ticketDetail.priority}`"
                   severity="warning"
@@ -190,6 +213,57 @@
                   <strong>{{ ticketDetail.building }}</strong>
                 </div>
               </div>
+
+              <div
+                v-if="ticketSensorEvidenceVisible"
+                class="sensor-evidence"
+              >
+                <div class="sensor-evidence__header">
+                  <h4>Sensor Evidence</h4>
+                  <Tag
+                    v-if="ticketDetail.verificationStatus && ticketDetail.verificationStatus !== '--'"
+                    :value="formatVerificationLabel(ticketDetail.verificationStatus)"
+                    :severity="verificationSeverity(ticketDetail.verificationStatus)"
+                    rounded
+                  />
+                </div>
+                <Message v-if="sensorEvidenceLoading" severity="info" :closable="false">Loading sensor evidence...</Message>
+                <Message v-else-if="sensorEvidenceError" severity="warn" :closable="false">{{ sensorEvidenceError }}</Message>
+                <div v-else class="sensor-evidence__grid">
+                  <div>
+                    <span class="meta-label">Ticket Source</span>
+                    <strong>{{ formatSourceLabel(ticketDetail.source) }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Linked IoT Incident</span>
+                    <strong>{{ ticketDetail.linkedIncident || '--' }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Sensor / Device</span>
+                    <strong>{{ incidentDeviceName }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Sensor Location</span>
+                    <strong>{{ incidentDeviceLocation }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Incident Type</span>
+                    <strong>{{ formatIncidentType(sensorIncident?.incident_type) }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Incident Severity</span>
+                    <strong>{{ sensorIncident?.severity || '--' }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Detection Time</span>
+                    <strong>{{ formatCell(sensorIncident?.started_at, 'started_at') }}</strong>
+                  </div>
+                  <div>
+                    <span class="meta-label">Evidence Summary</span>
+                    <strong>{{ latestEvidenceSummary }}</strong>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -236,6 +310,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ID_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { useIotMaintenance } from '~/composables/useIotMaintenance'
+import type { IotIncident, TicketVerificationEvent } from '~/types/iotMaintenance'
 
 type EntitySlug = 'tenants' | 'watchmen' | 'support-tickets'
 
@@ -250,6 +326,11 @@ interface EntityDefinition {
     rowKey: string
     columns: { field: string; header: string }[]
   }
+}
+
+interface TicketIotBadge {
+  label: string
+  severity: 'info' | 'warning' | 'success' | 'danger' | 'secondary'
 }
 
 const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
@@ -347,6 +428,11 @@ const timelineError = ref('')
 const timelineEvents = ref<
   { key: string; label: string; timestamp: string; detail?: string; variant: string }[]
 >([])
+const sensorEvidenceLoading = ref(false)
+const sensorEvidenceError = ref('')
+const sensorIncident = ref<IotIncident | null>(null)
+const sensorVerificationEvents = ref<TicketVerificationEvent[]>([])
+const { fetchTicketSensorEvidence } = useIotMaintenance()
 
 const supabaseUrl = runtimeConfig.public.supabaseUrl
 const supabaseAnonKey = runtimeConfig.public.supabaseAnonKey
@@ -703,6 +789,9 @@ const ticketDetail = computed(() => {
     watchman: getRecordText(record, 'watchman_display'),
     status: getRecordText(record, 'status'),
     priority: getRecordText(record, 'priority'),
+    source: getRecordText(record, 'source'),
+    linkedIncident: getRecordText(record, 'linked_iot_incident_id'),
+    verificationStatus: getRecordText(record, 'verification_status'),
     created: formatCell(record.created_at, 'created_at'),
     updated: formatCell(record.updated_at, 'updated_at'),
     delay: getDelayText(record),
@@ -710,6 +799,103 @@ const ticketDetail = computed(() => {
     ticketId: getRecordText(record, 'id') !== '--' ? getRecordText(record, 'id') : getRecordText(record, 'support_ticket_id')
   }
 })
+
+const latestVerificationEvent = computed(() => sensorVerificationEvents.value[0] || null)
+
+const latestEvidenceSummary = computed(() => latestVerificationEvent.value?.evidence_summary || '--')
+
+const incidentDeviceName = computed(() => sensorIncident.value?.iot_device?.device_name || sensorIncident.value?.iot_device?.sensor_code || '--')
+
+const incidentDeviceLocation = computed(() => sensorIncident.value?.iot_device?.location_label || '--')
+
+const ticketSensorEvidenceVisible = computed(() => {
+  if (!ticketDetail.value) {
+    return false
+  }
+
+  const linkedIncident = ticketDetail.value.linkedIncident && ticketDetail.value.linkedIncident !== '--'
+  const verStatus = ticketDetail.value.verificationStatus && ticketDetail.value.verificationStatus !== 'NOT_APPLICABLE' && ticketDetail.value.verificationStatus !== '--'
+
+  return linkedIncident || verStatus || sensorVerificationEvents.value.length > 0
+})
+
+const formatSourceLabel = (value?: string) => {
+  switch ((value || '').toUpperCase()) {
+    case 'IOT_AUTO':
+      return 'Auto-detected'
+    case 'WATCHMAN':
+      return 'Watchman'
+    case 'TENANT':
+      return 'Tenant'
+    default:
+      return value || '--'
+  }
+}
+
+const formatVerificationLabel = (value?: string) => {
+  switch ((value || '').toUpperCase()) {
+    case 'SUPPORTED':
+      return 'Verified by sensor'
+    case 'PENDING':
+      return 'Awaiting sensor verification'
+    case 'FAILED':
+      return 'Sensor verification failed'
+    case 'EXPIRED':
+      return 'Verification expired'
+    default:
+      return value || '--'
+  }
+}
+
+const verificationSeverity = (value?: string) => {
+  switch ((value || '').toUpperCase()) {
+    case 'SUPPORTED':
+      return 'success'
+    case 'PENDING':
+      return 'warning'
+    case 'FAILED':
+      return 'danger'
+    default:
+      return 'secondary'
+  }
+}
+
+const formatIncidentType = (value?: string | null) => {
+  if (!value) {
+    return '--'
+  }
+
+  if (value.toUpperCase() === 'WATER_LEAK_DETECTED') {
+    return 'Water leak detected'
+  }
+
+  return value.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase())
+}
+
+const getTicketIotBadges = (record: Record<string, unknown>): TicketIotBadge[] => {
+  const badges: TicketIotBadge[] = []
+  const source = String(record.source || '').toUpperCase()
+  const linkedIncident = record.linked_iot_incident_id
+  const verification = String(record.verification_status || '').toUpperCase()
+
+  if (source === 'IOT_AUTO') {
+    badges.push({ label: 'Auto-detected', severity: 'info' })
+  }
+
+  if (linkedIncident) {
+    badges.push({ label: 'Sensor-linked', severity: 'warning' })
+  }
+
+  if (verification === 'SUPPORTED') {
+    badges.push({ label: 'Verified by sensor', severity: 'success' })
+  } else if (verification === 'PENDING') {
+    badges.push({ label: 'Awaiting verification', severity: 'warning' })
+  } else if (verification === 'FAILED') {
+    badges.push({ label: 'Verification failed', severity: 'danger' })
+  }
+
+  return badges
+}
 
 const normalizeTenantRows = (data: Record<string, unknown>[]) =>
   data.map((row) => {
@@ -888,20 +1074,153 @@ const enrichSupportTicketRows = async (rows: Record<string, unknown>[]) => {
 
   const watchmanMap = await fetchWatchmanNames(watchmanIds)
 
+  const ticketIds = Array.from(
+    new Set(
+      rows
+        .map((row) =>
+          isLandlord.value
+            ? (row as { support_ticket_id?: string }).support_ticket_id
+            : (row as { id?: string }).id
+        )
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  let iotMetaByTicketId: Record<string, Record<string, unknown>> = {}
+
+  if (ticketIds.length) {
+    try {
+      const ticketMetaRows = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/support_ticket`, {
+        method: 'GET',
+        query: {
+          select: 'id,source,linked_iot_incident_id,verification_status',
+          id: buildInFilter(ticketIds),
+          limit: 500
+        },
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAccessToken.value}`
+        }
+      })
+
+      iotMetaByTicketId = (ticketMetaRows || []).reduce<Record<string, Record<string, unknown>>>((acc, ticket) => {
+        const id = String(ticket.id || '')
+        if (id) {
+          acc[id] = ticket
+        }
+        return acc
+      }, {})
+    } catch {
+      iotMetaByTicketId = {}
+    }
+  }
+
   return rows.map((row) => {
     const directId = (row as { watchman_id?: string | number }).watchman_id
     const tenantWatchmanId = (row as { tenant?: { watchman_id?: string | number } }).tenant?.watchman_id
     const lookupId = directId ?? tenantWatchmanId
 
-    if (lookupId && watchmanMap[lookupId]) {
-      return {
-        ...row,
-        watchman_name: watchmanMap[lookupId]
-      }
+    const ticketId = isLandlord.value
+      ? String((row as { support_ticket_id?: string }).support_ticket_id || '')
+      : String((row as { id?: string }).id || '')
+
+    const enriched: Record<string, unknown> = {
+      ...row
     }
 
-    return row
+    if (lookupId && watchmanMap[lookupId]) {
+      enriched.watchman_name = watchmanMap[lookupId]
+    }
+
+    if (ticketId && iotMetaByTicketId[ticketId]) {
+      enriched.source = iotMetaByTicketId[ticketId].source
+      enriched.linked_iot_incident_id = iotMetaByTicketId[ticketId].linked_iot_incident_id
+      enriched.verification_status = iotMetaByTicketId[ticketId].verification_status
+    }
+
+    return enriched
   })
+}
+
+const loadTicketSensorEvidence = async (record: Record<string, unknown>) => {
+  if (!isSupportTicketView.value) {
+    return
+  }
+
+  const ticketId = String(
+    isLandlord.value
+      ? (record as { support_ticket_id?: string }).support_ticket_id || ''
+      : (record as { id?: string }).id || ''
+  )
+
+  if (!ticketId) {
+    return
+  }
+
+  sensorEvidenceLoading.value = true
+  sensorEvidenceError.value = ''
+  sensorIncident.value = null
+  sensorVerificationEvents.value = []
+
+  const linkedIncidentId = (record as { linked_iot_incident_id?: string }).linked_iot_incident_id || null
+  const result = await fetchTicketSensorEvidence(supabaseAccessToken.value, ticketId, linkedIncidentId)
+
+  if (result.error || !result.data) {
+    sensorEvidenceError.value = result.error || 'Unable to load sensor evidence.'
+    sensorEvidenceLoading.value = false
+    return
+  }
+
+  sensorIncident.value = result.data.incident
+  sensorVerificationEvents.value = result.data.verificationEvents
+  sensorEvidenceLoading.value = false
+}
+
+const openRecordDetail = async (record: Record<string, unknown>) => {
+  detailRecord.value = record
+  detailDialogVisible.value = true
+
+  if (isSupportTicketView.value) {
+    await loadTicketSensorEvidence(record)
+  } else {
+    sensorIncident.value = null
+    sensorVerificationEvents.value = []
+    sensorEvidenceError.value = ''
+  }
+}
+
+const supportTicketIdField = computed(() => {
+  if (!isSupportTicketView.value) {
+    return 'id'
+  }
+
+  if (isLandlord.value && activeEntity.value?.landlordView) {
+    return 'support_ticket_id'
+  }
+
+  return 'id'
+})
+
+const openTimelineDialog = async (record: Record<string, unknown>) => {
+  if (!isSupportTicketView.value) {
+    return
+  }
+
+  const idField = supportTicketIdField.value
+  const ticketId = (record as Record<string, unknown>)[idField]
+
+  if (!ticketId || typeof ticketId !== 'string') {
+    timelineError.value = 'Ticket id is missing.'
+    timelineEvents.value = []
+    timelineDialogVisible.value = true
+
+    return
+  }
+
+  timelineTicketId.value = ticketId
+  timelineTicketTitle.value = (record as { title?: string; subject?: string }).title || (record as { subject?: string }).subject || 'Support Ticket'
+  timelineDialogVisible.value = true
+  await loadTicketTimeline(ticketId)
 }
 
 const loadRows = async () => {
@@ -973,45 +1292,6 @@ const loadRows = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const openRecordDetail = (record: Record<string, unknown>) => {
-  detailRecord.value = record
-  detailDialogVisible.value = true
-}
-
-const supportTicketIdField = computed(() => {
-  if (!isSupportTicketView.value) {
-    return 'id'
-  }
-
-  if (isLandlord.value && activeEntity.value?.landlordView) {
-    return 'support_ticket_id'
-  }
-
-  return 'id'
-})
-
-const openTimelineDialog = async (record: Record<string, unknown>) => {
-  if (!isSupportTicketView.value) {
-    return
-  }
-
-  const idField = supportTicketIdField.value
-  const ticketId = (record as Record<string, unknown>)[idField]
-
-  if (!ticketId || typeof ticketId !== 'string') {
-    timelineError.value = 'Ticket id is missing.'
-    timelineEvents.value = []
-    timelineDialogVisible.value = true
-
-    return
-  }
-
-  timelineTicketId.value = ticketId
-  timelineTicketTitle.value = (record as { title?: string; subject?: string }).title || (record as { subject?: string }).subject || 'Support Ticket'
-  timelineDialogVisible.value = true
-  await loadTicketTimeline(ticketId)
 }
 
 const loadTicketTimeline = async (ticketId: string) => {
@@ -1252,6 +1532,22 @@ watch(
   gap: 0.35rem;
 }
 
+.ticket-title-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ticket-iot-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.iot-badge {
+  font-size: 0.72rem;
+}
+
 .timeline-dialog :deep(.p-dialog-header) {
   font-weight: 700;
 }
@@ -1416,6 +1712,32 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.85rem;
+}
+
+.sensor-evidence {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  padding: 0.8rem;
+  background: #fff;
+}
+
+.sensor-evidence__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.sensor-evidence__header h4 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.sensor-evidence__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
 }
 
 @media (max-width: 640px) {

@@ -203,6 +203,44 @@
             </template>
           </Card>
         </div>
+
+        <Card v-if="role === 'LANDLORD'" class="iot-dashboard-card">
+          <template #title>
+            <div class="iot-dashboard-card__title">
+              <span>IoT Monitoring</span>
+              <Button label="Open" icon="pi pi-arrow-right" text severity="secondary" @click="router.push('/iot-monitoring')" />
+            </div>
+          </template>
+          <template #content>
+            <Message v-if="iotSummaryError" severity="warn" :closable="false">{{ iotSummaryError }}</Message>
+            <div v-else class="iot-summary-grid">
+              <div class="iot-summary-item">
+                <span>Active Alerts</span>
+                <strong>{{ iotSummary.activeSensorAlerts }}</strong>
+              </div>
+              <div class="iot-summary-item">
+                <span>Total Sensors</span>
+                <strong>{{ iotSummary.totalSensors }}</strong>
+              </div>
+              <div class="iot-summary-item">
+                <span>Offline Sensors</span>
+                <strong>{{ iotSummary.offlineSensors }}</strong>
+              </div>
+              <div class="iot-summary-item">
+                <span>Auto-detected Tickets</span>
+                <strong>{{ iotSummary.autoDetectedTickets }}</strong>
+              </div>
+              <div class="iot-summary-item">
+                <span>Verified Repairs</span>
+                <strong>{{ iotSummary.sensorVerifiedRepairs }}</strong>
+              </div>
+              <div class="iot-summary-item">
+                <span>Open Incidents</span>
+                <strong>{{ iotSummary.openIotIncidents }}</strong>
+              </div>
+            </div>
+          </template>
+        </Card>
       </section>
     </div>
   </main>
@@ -211,6 +249,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ID_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
+import { useIotMaintenance } from '~/composables/useIotMaintenance'
 
 type EntityKey = 'tenant' | 'watchman' | 'support_ticket'
 
@@ -290,7 +329,17 @@ const landlordWatchmen = ref<LandlordWatchmanSummary[]>([])
 const landlordBuildings = ref<LandlordBuildingSummary[]>([])
 const landlordEscalated = ref<LandlordTicketRecord[]>([])
 const escalatedModalVisible = ref(false)
+const iotSummaryError = ref('')
+const iotSummary = reactive({
+  activeSensorAlerts: 0,
+  totalSensors: 0,
+  offlineSensors: 0,
+  autoDetectedTickets: 0,
+  sensorVerifiedRepairs: 0,
+  openIotIncidents: 0
+})
 const router = useRouter()
+const { fetchOverview: fetchIotOverview } = useIotMaintenance()
 const entityRoutes: Record<EntityKey, string> = {
   tenant: '/entities/tenants',
   watchman: '/entities/watchmen',
@@ -726,6 +775,17 @@ const loadLandlordTransparencyData = async (token: string, userId: string) => {
   }
 }
 
+const loadIotSummary = async (token: string, userId: string) => {
+  iotSummaryError.value = ''
+  const result = await fetchIotOverview(token, userId)
+  if (result.error || !result.data) {
+    iotSummaryError.value = result.error || 'Unable to load IoT monitoring summary.'
+    return
+  }
+
+  Object.assign(iotSummary, result.data)
+}
+
 onMounted(async () => {
   if (!process.client) {
     return
@@ -763,7 +823,10 @@ onMounted(async () => {
   errorMessage.value = tenantResult.error || watchmanResult.error || supportTicketsResult.error || ''
 
   if (role.value === 'LANDLORD') {
-    await loadLandlordTransparencyData(storedToken, landlordUserId.value)
+    await Promise.all([
+      loadLandlordTransparencyData(storedToken, landlordUserId.value),
+      loadIotSummary(storedToken, landlordUserId.value)
+    ])
   }
 })
 </script>
@@ -1228,6 +1291,41 @@ onMounted(async () => {
 
 .actions-grid :deep(.p-button) {
   width: 100%;
+}
+
+.iot-dashboard-card :deep(.p-card-body) {
+  border-radius: 1.2rem;
+  padding: 1.1rem;
+}
+
+.iot-dashboard-card__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.iot-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.7rem;
+}
+
+.iot-summary-item {
+  border: 1px solid var(--color-soft-linen-200);
+  border-radius: 0.8rem;
+  padding: 0.7rem;
+  background: #fff;
+}
+
+.iot-summary-item span {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-carbon-black-600);
+}
+
+.iot-summary-item strong {
+  font-size: 1.4rem;
+  color: var(--color-carbon-black-800);
 }
 
 @media (max-width: 640px) {

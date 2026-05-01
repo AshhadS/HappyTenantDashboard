@@ -30,6 +30,10 @@
           <i class="pi pi-building"></i>
           <span>Buildings</span>
         </NuxtLink>
+        <NuxtLink to="/iot-monitoring" class="nav-link" active-class="is-active">
+          <i class="pi pi-wifi"></i>
+          <span>IoT Monitoring</span>
+        </NuxtLink>
       </nav>
 
       <div class="nav-footer">
