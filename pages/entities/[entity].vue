@@ -42,6 +42,18 @@
           </Message>
 
           <div v-else>
+            <div v-if="isSupportTicketView" class="ticket-filters">
+              <Button
+                v-for="option in ticketFilterOptions"
+                :key="option.value"
+                :label="option.label"
+                size="small"
+                :severity="ticketFilter === option.value ? 'info' : 'secondary'"
+                :outlined="ticketFilter !== option.value"
+                @click="ticketFilter = option.value"
+              />
+            </div>
+
             <div v-if="loading" class="table-loading">
               <Skeleton height="3.5rem" borderRadius="12px" />
               <Skeleton height="3.5rem" borderRadius="12px" />
@@ -50,8 +62,8 @@
 
             <template v-else>
               <DataTable
-                v-if="rows.length"
-                :value="rows"
+                v-if="filteredRows.length"
+                :value="filteredRows"
                 :dataKey="tableDataKey"
                 :rowClass="getRowClass"
                 size="small"
@@ -68,7 +80,7 @@
               >
                 <template #header>
                   <div class="table-header">
-                    <span>{{ rows.length }} records loaded</span>
+                    <span>{{ filteredRows.length }} records loaded</span>
                     <Tag value="PrimeVue DataTable" icon="pi pi-table" severity="info" rounded />
                   </div>
                 </template>
@@ -99,6 +111,7 @@
                             class="iot-badge"
                           />
                         </div>
+                        <small v-if="getTicketIotMetaLine(data)" class="ticket-iot-meta">{{ getTicketIotMetaLine(data) }}</small>
                       </div>
                     </template>
                     <template v-else-if="isSupportTicketView && column.field === 'status'">
@@ -134,7 +147,7 @@
                 </Column>
               </DataTable>
 
-              <Message v-else severity="info" :closable="false">No records exist yet. Try refreshing later.</Message>
+              <Message v-else severity="info" :closable="false">No records match the selected filter.</Message>
             </template>
           </div>
         </template>
@@ -145,7 +158,7 @@
         modal
         :header="detailDialogTitle"
         class="detail-dialog"
-        :style="{ width: 'min(520px, 92vw)' }"
+        :style="{ width: 'min(1220px, 92vw)' }"
       >
         <template v-if="isSupportTicketView && ticketDetail">
           <div class="ticket-dialog">
@@ -247,6 +260,10 @@
                     <strong>{{ incidentDeviceLocation }}</strong>
                   </div>
                   <div>
+                    <span class="meta-label">Gateway</span>
+                    <strong>{{ incidentGatewayName }}</strong>
+                  </div>
+                  <div>
                     <span class="meta-label">Incident Type</span>
                     <strong>{{ formatIncidentType(sensorIncident?.incident_type) }}</strong>
                   </div>
@@ -332,6 +349,14 @@ interface TicketIotBadge {
   label: string
   severity: 'info' | 'warning' | 'success' | 'danger' | 'secondary'
 }
+
+type TicketFilterKey =
+  | 'all'
+  | 'tenant_reported'
+  | 'auto_detected'
+  | 'sensor_linked'
+  | 'sensor_verified'
+  | 'awaiting_verification'
 
 const entityDefinitions: Record<EntitySlug, EntityDefinition> = {
   tenants: {
@@ -428,6 +453,7 @@ const timelineError = ref('')
 const timelineEvents = ref<
   { key: string; label: string; timestamp: string; detail?: string; variant: string }[]
 >([])
+const ticketFilter = ref<TicketFilterKey>('all')
 const sensorEvidenceLoading = ref(false)
 const sensorEvidenceError = ref('')
 const sensorIncident = ref<IotIncident | null>(null)
@@ -452,6 +478,14 @@ const isLandlord = computed(() => role.value === 'LANDLORD')
 const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value)
 const isSupportTicketView = computed(() => entitySlug.value === 'support-tickets')
 const resolvedStatuses = ['COMPLETED', 'FIXED', 'RESOLVED', 'CLOSED', 'VERIFIED']
+const ticketFilterOptions: { label: string; value: TicketFilterKey }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Tenant Reported', value: 'tenant_reported' },
+  { label: 'Auto-detected', value: 'auto_detected' },
+  { label: 'Sensor-linked', value: 'sensor_linked' },
+  { label: 'Sensor Verified', value: 'sensor_verified' },
+  { label: 'Awaiting Verification', value: 'awaiting_verification' }
+]
 
 const columnHints = computed(() => {
   if (!activeEntity.value) {
@@ -800,6 +834,35 @@ const ticketDetail = computed(() => {
   }
 })
 
+const filteredRows = computed(() => {
+  if (!isSupportTicketView.value) {
+    return rows.value
+  }
+
+  const matches = (row: Record<string, unknown>) => {
+    const source = String(row.source || '').toUpperCase()
+    const linkedIncident = row.linked_iot_incident_id
+    const verification = String(row.verification_status || '').toUpperCase()
+
+    switch (ticketFilter.value) {
+      case 'tenant_reported':
+        return source !== 'IOT_AUTO'
+      case 'auto_detected':
+        return source === 'IOT_AUTO'
+      case 'sensor_linked':
+        return Boolean(linkedIncident)
+      case 'sensor_verified':
+        return verification === 'SUPPORTED'
+      case 'awaiting_verification':
+        return verification === 'PENDING'
+      default:
+        return true
+    }
+  }
+
+  return rows.value.filter(matches)
+})
+
 const latestVerificationEvent = computed(() => sensorVerificationEvents.value[0] || null)
 
 const latestEvidenceSummary = computed(() => latestVerificationEvent.value?.evidence_summary || '--')
@@ -807,6 +870,10 @@ const latestEvidenceSummary = computed(() => latestVerificationEvent.value?.evid
 const incidentDeviceName = computed(() => sensorIncident.value?.iot_device?.device_name || sensorIncident.value?.iot_device?.sensor_code || '--')
 
 const incidentDeviceLocation = computed(() => sensorIncident.value?.iot_device?.location_label || '--')
+
+const incidentGatewayName = computed(
+  () => sensorIncident.value?.iot_device?.iot_gateway?.gateway_code || sensorIncident.value?.iot_device?.iot_gateway?.location_label || '--'
+)
 
 const ticketSensorEvidenceVisible = computed(() => {
   if (!ticketDetail.value) {
@@ -895,6 +962,25 @@ const getTicketIotBadges = (record: Record<string, unknown>): TicketIotBadge[] =
   }
 
   return badges
+}
+
+const getTicketIotMetaLine = (record: Record<string, unknown>) => {
+  const parts: string[] = []
+  const location = String(record.iot_location_label || '').trim()
+  const severity = String(record.iot_severity || '').trim()
+  const verification = String(record.verification_status || '').trim()
+
+  if (location) {
+    parts.push(location)
+  }
+  if (severity) {
+    parts.push(`Severity: ${severity}`)
+  }
+  if (verification) {
+    parts.push(`Verification: ${formatVerificationLabel(verification)}`)
+  }
+
+  return parts.join(' · ')
 }
 
 const normalizeTenantRows = (data: Record<string, unknown>[]) =>
@@ -1087,6 +1173,7 @@ const enrichSupportTicketRows = async (rows: Record<string, unknown>[]) => {
   )
 
   let iotMetaByTicketId: Record<string, Record<string, unknown>> = {}
+  let incidentById: Record<string, Record<string, unknown>> = {}
 
   if (ticketIds.length) {
     try {
@@ -1115,6 +1202,37 @@ const enrichSupportTicketRows = async (rows: Record<string, unknown>[]) => {
     }
   }
 
+  const incidentIds = Array.from(
+    new Set(Object.values(iotMetaByTicketId).map((item) => String(item.linked_iot_incident_id || '')).filter(Boolean))
+  )
+
+  if (incidentIds.length) {
+    try {
+      const incidentRows = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/iot_incident`, {
+        method: 'GET',
+        query: {
+          select: 'id,severity,iot_device(location_label)',
+          id: buildInFilter(incidentIds),
+          limit: 500
+        },
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAccessToken.value}`
+        }
+      })
+
+      incidentById = (incidentRows || []).reduce<Record<string, Record<string, unknown>>>((acc, incident) => {
+        const id = String(incident.id || '')
+        if (id) {
+          acc[id] = incident
+        }
+        return acc
+      }, {})
+    } catch {
+      incidentById = {}
+    }
+  }
+
   return rows.map((row) => {
     const directId = (row as { watchman_id?: string | number }).watchman_id
     const tenantWatchmanId = (row as { tenant?: { watchman_id?: string | number } }).tenant?.watchman_id
@@ -1136,6 +1254,13 @@ const enrichSupportTicketRows = async (rows: Record<string, unknown>[]) => {
       enriched.source = iotMetaByTicketId[ticketId].source
       enriched.linked_iot_incident_id = iotMetaByTicketId[ticketId].linked_iot_incident_id
       enriched.verification_status = iotMetaByTicketId[ticketId].verification_status
+
+      const linkedIncidentId = String(iotMetaByTicketId[ticketId].linked_iot_incident_id || '')
+      const linkedIncident = linkedIncidentId ? incidentById[linkedIncidentId] : null
+      if (linkedIncident) {
+        enriched.iot_severity = linkedIncident.severity
+        enriched.iot_location_label = (linkedIncident.iot_device as { location_label?: string } | undefined)?.location_label || ''
+      }
     }
 
     return enriched
@@ -1381,6 +1506,7 @@ onMounted(async () => {
 watch(
   () => route.params.entity,
   async () => {
+    ticketFilter.value = 'all'
     rows.value = []
     errorMessage.value = ''
     lastFetched.value = null
@@ -1484,6 +1610,13 @@ watch(
   gap: 0.75rem;
 }
 
+.ticket-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
 .entity-table :deep(.p-datatable-wrapper) {
   border-radius: 1rem;
   border: 1px solid #e2e8f0;
@@ -1546,6 +1679,11 @@ watch(
 
 .iot-badge {
   font-size: 0.72rem;
+}
+
+.ticket-iot-meta {
+  color: #64748b;
+  font-size: 0.78rem;
 }
 
 .timeline-dialog :deep(.p-dialog-header) {

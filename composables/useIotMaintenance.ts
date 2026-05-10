@@ -280,7 +280,7 @@ export const useIotMaintenance = () => {
           ? $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/iot_incident`, {
               method: 'GET',
               query: {
-                select: '*,iot_device(*)',
+                select: '*,iot_device(*,iot_gateway(*))',
                 id: `eq.${linkedIotIncidentId}`,
                 limit: 1
               },
