@@ -2,7 +2,7 @@
   <main class="dashboard-page">
     <div class="page-shell">
       <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
-      <Message v-else-if="!['authenticated', 'LANDLORD'].includes(role)" severity="warn" :closable="false">
+      <Message v-else-if="!['authenticated', 'LANDLORD', 'WATCHMAN'].includes(role)" severity="warn" :closable="false">
         You are signed in as <strong>{{ role || 'user' }}</strong>. Dashboard cards are available for super admins only.
       </Message>
 
@@ -343,7 +343,7 @@ const { fetchOverview: fetchIotOverview } = useIotMaintenance()
 const entityRoutes: Record<EntityKey, string> = {
   tenant: '/entities/tenants',
   watchman: '/entities/watchmen',
-  support_ticket: '/entities/support-tickets'
+  support_ticket: '/tickets'
 }
 
 const occupancyGoal = 120
@@ -424,12 +424,12 @@ const statCards = computed(() => [
   },
   {
     key: 'support_ticket' as EntityKey,
-    title: 'Support Tickets',
+    title: 'Tickets',
     icon: 'pi-inbox',
     value: formatCount(counts.support_tickets),
     trend: ticketPressure.value > 90 ? 'High load' : 'Stable',
     severity: ticketPressure.value > 90 ? 'danger' : 'warning',
-    caption: 'Open items tracked in Supabase',
+    caption: 'Open work routed by building',
     accent: 'accent-rose'
   }
 ])
@@ -802,7 +802,7 @@ onMounted(async () => {
     return
   }
 
-  if (!['authenticated', 'LANDLORD'].includes(role.value)) {
+  if (!['authenticated', 'LANDLORD', 'WATCHMAN'].includes(role.value)) {
     return
   }
 

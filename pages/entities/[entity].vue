@@ -475,7 +475,8 @@ const entitySlug = computed<EntitySlug | null>(() => {
 
 const activeEntity = computed(() => (entitySlug.value ? entityDefinitions[entitySlug.value] : null))
 const isLandlord = computed(() => role.value === 'LANDLORD')
-const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value)
+const isWatchman = computed(() => role.value === 'WATCHMAN')
+const isAllowed = computed(() => role.value === 'authenticated' || isLandlord.value || isWatchman.value)
 const isSupportTicketView = computed(() => entitySlug.value === 'support-tickets')
 const resolvedStatuses = ['COMPLETED', 'FIXED', 'RESOLVED', 'CLOSED', 'VERIFIED']
 const ticketFilterOptions: { label: string; value: TicketFilterKey }[] = [
@@ -1498,6 +1499,11 @@ const hydrateSession = () => {
 onMounted(async () => {
   hydrateSession()
 
+  if (entitySlug.value === 'support-tickets') {
+    await navigateTo('/tickets')
+    return
+  }
+
   if (supabaseAccessToken.value && isAllowed.value && activeEntity.value) {
     await loadRows()
   }
@@ -1506,6 +1512,11 @@ onMounted(async () => {
 watch(
   () => route.params.entity,
   async () => {
+    if (entitySlug.value === 'support-tickets') {
+      await navigateTo('/tickets')
+      return
+    }
+
     ticketFilter.value = 'all'
     rows.value = []
     errorMessage.value = ''

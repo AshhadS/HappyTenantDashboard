@@ -11,7 +11,7 @@ import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables
 const config = useRuntimeConfig()
 const postLoginRoute = config.public.postLoginRoute || '/dashboard'
 
-const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD'
+const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD' || role === 'WATCHMAN'
 
 onMounted(() => {
   if (!process.client) {

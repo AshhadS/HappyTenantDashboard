@@ -83,7 +83,7 @@ const forgotPasswordRoute = config.public.forgotPasswordRoute || '/forgot-passwo
 
 const { signInWithPassword, fetchUserProfile } = useSupabaseAuth()
 
-const canAccessApp = (role: string) => role === 'authenticated' || role === 'LANDLORD'
+const canAccessApp = (role: string) => role === 'authenticated' || role === 'LANDLORD' || role === 'WATCHMAN'
 
 const onSubmit = async () => {
   errorMessage.value = ''

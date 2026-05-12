@@ -22,9 +22,9 @@
           <i class="pi pi-shield"></i>
           <span>Watchmen</span>
         </NuxtLink>
-        <NuxtLink to="/entities/support-tickets" class="nav-link" active-class="is-active">
+        <NuxtLink to="/tickets" class="nav-link" active-class="is-active">
           <i class="pi pi-inbox"></i>
-          <span>Support Tickets</span>
+          <span>Tickets</span>
         </NuxtLink>
         <NuxtLink to="/buildings" class="nav-link" active-class="is-active">
           <i class="pi pi-building"></i>
@@ -55,7 +55,7 @@ const authState = useState<boolean>('auth-state', () => false)
 const isAuthenticated = computed(() => authState.value)
 const route = useRoute()
 
-const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD'
+const isRoleAllowed = (role: string | null) => role === 'authenticated' || role === 'LANDLORD' || role === 'WATCHMAN'
 
 const displayName = ref('Happy Tenant')
 const displayRole = ref('Ops Console')
@@ -69,7 +69,8 @@ const syncAuthState = () => {
   const role = localStorage.getItem(SUPABASE_USER_ROLE_KEY)
   const email = localStorage.getItem('supabase.user.email')
   authState.value = Boolean(token && isRoleAllowed(role))
-  displayRole.value = role === 'LANDLORD' ? 'Landlord' : role ? role : 'Guest'
+  displayRole.value =
+    role === 'LANDLORD' ? 'Landlord' : role === 'WATCHMAN' ? 'Watchman' : role ? role : 'Guest'
   displayName.value = email || 'Happy Tenant'
 
   if (!authState.value && route.path !== '/login') {
