@@ -87,7 +87,7 @@ export const scoreLabel = (score: number) => {
     return 'Fair'
   }
 
-  return 'Needs Attention'
+  return 'Weak'
 }
 
 export const confidenceLabel = (score: number) => {

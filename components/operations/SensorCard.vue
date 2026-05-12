@@ -64,29 +64,29 @@ const createdLabel = computed(() => {
   border: 1px solid var(--color-soft-linen-200);
   border-radius: 1rem;
   background: #fff;
-  padding: 0.95rem;
+  padding: 0.72rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.18rem;
 }
 
 .sensor-card__header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 0.8rem;
+  gap: 0.65rem;
 }
 
 .sensor-card__title {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.18rem;
 }
 
 .sensor-card__icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 0.9rem;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 0.7rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -96,7 +96,7 @@ const createdLabel = computed(() => {
 }
 
 .sensor-card__icon span {
-  font-size: 1.5rem;
+  font-size: 1.12rem;
   line-height: 1;
 }
 
@@ -104,21 +104,26 @@ const createdLabel = computed(() => {
   color: var(--color-carbon-black-500);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-size: 0.72rem;
 }
 
 .sensor-card__header h4 {
-  margin: 0.2rem 0 0;
+  margin: 0.12rem 0 0;
   color: var(--color-carbon-black-900);
+  font-size: 0.98rem;
+  line-height: 1.25;
 }
 
 .sensor-card__meta {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.15rem;
   color: var(--color-carbon-black-700);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .sensor-card__created {
   color: var(--color-carbon-black-500);
+  font-size: 0.76rem;
 }
 </style>
