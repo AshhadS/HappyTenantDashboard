@@ -29,6 +29,24 @@ export interface BuildingOperationsTicket {
   severity: string | null
 }
 
+export interface BuildingOperationsTicketTimelineEvent {
+  id: string
+  eventType: string
+  createdAt: string | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface BuildingOperationsTicketDetail extends BuildingOperationsTicket {
+  buildingId: string
+  buildingName: string
+  photoUrl: string | null
+  tenantPhone: string | null
+  tenantFloor: number | null
+  linkedIncident: IotIncident | null
+  verificationEvents: TicketVerificationEvent[]
+  timelineEvents: BuildingOperationsTicketTimelineEvent[]
+}
+
 export interface BuildingOperationsSensor extends IotDevice {
   gatewayName: string | null
 }

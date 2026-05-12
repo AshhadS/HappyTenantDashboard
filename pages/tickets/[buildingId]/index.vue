@@ -75,38 +75,49 @@
           <Card class="ops-section">
             <template #title>Open Tickets</template>
             <template #content>
-              <div class="ticket-groups">
-                <div v-for="group in ticketGroups" :key="group.label" class="ticket-group">
-                  <div class="ticket-group__header">
-                    <h3>{{ group.label }}</h3>
-                    <Tag :value="String(group.items.length)" severity="secondary" rounded />
+              <div v-if="visibleOpenTickets.length" class="ticket-list">
+                <article
+                  v-for="ticket in visibleOpenTickets"
+                  :key="ticket.id"
+                  class="ticket-row"
+                  role="button"
+                  tabindex="0"
+                  @click="openTicketDetail(ticket.id)"
+                  @keyup.enter="openTicketDetail(ticket.id)"
+                >
+                  <div class="ticket-row__main">
+                    <div class="ticket-row__title">
+                      <small>{{ ticket.unitNumber ? `Unit ${ticket.unitNumber}` : ticket.tenantName || 'Common Area' }}</small>
+                      <h4>{{ ticket.title }}</h4>
+                    </div>
+                    <p>{{ ticket.assignedWatchman || 'Unassigned watchman' }} - {{ ticket.linkedSensorName || 'Manual follow-up' }}</p>
+                    <div class="ticket-card__chips">
+                      <Tag v-if="ticket.source === 'IOT_AUTO'" value="Auto-detected" severity="info" rounded />
+                      <Tag v-if="ticket.linkedIotIncidentId" value="Sensor-linked" severity="warning" rounded />
+                      <Tag
+                        v-if="ticket.verificationStatus"
+                        :value="verificationLabel(ticket.verificationStatus)"
+                        :severity="verificationSeverity(ticket.verificationStatus)"
+                        rounded
+                      />
+                    </div>
                   </div>
-                  <div v-if="group.items.length" class="ticket-stack">
-                    <article v-for="ticket in group.items" :key="`${group.label}-${ticket.id}`" class="ticket-card">
-                      <div class="ticket-card__top">
-                        <div>
-                          <small>{{ ticket.unitNumber ? `Unit ${ticket.unitNumber}` : ticket.tenantName || 'Common Area' }}</small>
-                          <h4>{{ ticket.title }}</h4>
-                        </div>
-                        <Tag :value="ticket.status || '--'" :severity="ticketStatusSeverity(ticket.status)" rounded />
-                      </div>
-                      <p>{{ ticket.assignedWatchman || 'Unassigned watchman' }} - {{ ticket.linkedSensorName || 'Manual follow-up' }}</p>
-                      <div class="ticket-card__chips">
-                        <Tag v-if="ticket.source === 'IOT_AUTO'" value="Auto-detected" severity="info" rounded />
-                        <Tag v-if="ticket.linkedIotIncidentId" value="Sensor-linked" severity="warning" rounded />
-                        <Tag
-                          v-if="ticket.verificationStatus"
-                          :value="verificationLabel(ticket.verificationStatus)"
-                          :severity="verificationSeverity(ticket.verificationStatus)"
-                          rounded
-                        />
-                      </div>
-                      <small>{{ formatDateTime(ticket.updatedAt || ticket.createdAt) }}</small>
-                    </article>
+                  <div class="ticket-row__meta">
+                    <Tag :value="ticket.status || '--'" :severity="ticketStatusSeverity(ticket.status)" rounded />
+                    <small>{{ formatDateTime(ticket.updatedAt || ticket.createdAt) }}</small>
                   </div>
-                  <Message v-else severity="info" :closable="false">No tickets in this queue.</Message>
+                </article>
+                <div v-if="hasMoreOpenTickets" class="ticket-list__actions">
+                  <Button
+                    label="Load More"
+                    icon="pi pi-angle-down"
+                    severity="secondary"
+                    text
+                    @click="visibleTicketCount += 5"
+                  />
                 </div>
               </div>
+              <Message v-else severity="info" :closable="false">No open tickets for this building.</Message>
             </template>
           </Card>
 
@@ -203,7 +214,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import type { BuildingOperationsHubData, BuildingOperationsTicket } from '~/types/buildingOperations'
+import type { BuildingOperationsHubData } from '~/types/buildingOperations'
 import { SUPABASE_ACCESS_TOKEN_KEY, SUPABASE_USER_ID_KEY, SUPABASE_USER_ROLE_KEY } from '~/composables/useSupabaseAuth'
 import { useBuildingOperations } from '~/composables/useBuildingOperations'
 import IncidentCard from '~/components/operations/IncidentCard.vue'
@@ -219,6 +230,7 @@ const role = ref('')
 const userId = ref('')
 const errorMessage = ref('')
 const hubData = ref<BuildingOperationsHubData | null>(null)
+const visibleTicketCount = ref(5)
 
 const buildingId = computed(() => String(route.params.buildingId || ''))
 
@@ -226,44 +238,20 @@ const activeIncidents = computed(() =>
   (hubData.value?.incidents || []).filter((incident) => ['OPEN', 'LINKED_TO_TICKET'].includes((incident.status || '').toUpperCase()))
 )
 
-const isOverdue = (ticket: BuildingOperationsTicket) => {
-  if (!ticket.createdAt) {
-    return false
-  }
-
-  const status = (ticket.status || '').toUpperCase()
-  if (['COMPLETED', 'FIXED', 'CLOSED', 'RESOLVED', 'VERIFIED'].includes(status)) {
-    return false
-  }
-
-  return Date.now() - new Date(ticket.createdAt).getTime() > 72 * 60 * 60 * 1000
-}
-
-const ticketGroups = computed(() => {
+const openTickets = computed(() => {
   const tickets = hubData.value?.tickets || []
-  return [
-    {
-      label: 'Emergency',
-      items: tickets.filter((ticket) => ['HIGH', 'CRITICAL'].includes((ticket.severity || '').toUpperCase()))
-    },
-    {
-      label: 'IoT Generated',
-      items: tickets.filter((ticket) => (ticket.source || '').toUpperCase() === 'IOT_AUTO')
-    },
-    {
-      label: 'Tenant Submitted',
-      items: tickets.filter((ticket) => (ticket.source || '').toUpperCase() !== 'IOT_AUTO')
-    },
-    {
-      label: 'Awaiting Verification',
-      items: tickets.filter((ticket) => (ticket.verificationStatus || '').toUpperCase() === 'PENDING')
-    },
-    {
-      label: 'Overdue',
-      items: tickets.filter(isOverdue)
-    }
-  ]
+  return [...tickets]
+    .filter((ticket) => !['COMPLETED', 'FIXED', 'CLOSED', 'RESOLVED', 'VERIFIED'].includes((ticket.status || '').toUpperCase()))
+    .sort((left, right) => {
+      const leftTime = new Date(left.updatedAt || left.createdAt || 0).getTime()
+      const rightTime = new Date(right.updatedAt || right.createdAt || 0).getTime()
+      return rightTime - leftTime
+    })
 })
+
+const visibleOpenTickets = computed(() => openTickets.value.slice(0, visibleTicketCount.value))
+
+const hasMoreOpenTickets = computed(() => openTickets.value.length > visibleOpenTickets.value.length)
 
 const liveStatusItems = computed(() => {
   const incidents = activeIncidents.value
@@ -376,6 +364,10 @@ const formatDateTime = (value?: string | null) => {
   return date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+const openTicketDetail = (ticketId: string) => {
+  router.push(`/tickets/${buildingId.value}/${ticketId}`)
+}
+
 const loadHub = async () => {
   if (!token.value) {
     errorMessage.value = 'You are not signed in.'
@@ -383,6 +375,7 @@ const loadHub = async () => {
   }
 
   errorMessage.value = ''
+  visibleTicketCount.value = 5
   const result = await fetchBuildingOperationsHub(token.value, role.value, userId.value, buildingId.value)
   hubData.value = result.data
   errorMessage.value = result.error || ''
@@ -521,41 +514,13 @@ watch(
   gap: 0.8rem;
 }
 
-.ticket-groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 0.8rem;
-}
-
-.ticket-group {
-  border: 1px solid var(--color-soft-linen-200);
-  border-radius: 1rem;
-  padding: 0.75rem;
-  background: var(--color-soft-linen-50);
+.ticket-list {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
-.ticket-group__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.ticket-group__header h3 {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--color-carbon-black-900);
-}
-
-.ticket-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.ticket-card,
+.ticket-row,
 .gateway-card,
 .verification-card {
   border-radius: 0.85rem;
@@ -563,11 +528,38 @@ watch(
   border: 1px solid var(--color-soft-linen-200);
   padding: 0.75rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  gap: 1rem;
 }
 
-.ticket-card__top,
+.ticket-row {
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.ticket-row:hover,
+.ticket-row:focus-visible {
+  border-color: var(--color-sunflower-gold-500);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.ticket-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ticket-row__title small {
+  color: var(--color-carbon-black-500);
+}
+
+.ticket-row__title h4 {
+  margin: 0.15rem 0 0;
+  color: var(--color-carbon-black-900);
+}
+
 .gateway-card__top,
 .verification-card__top {
   display: flex;
@@ -575,20 +567,18 @@ watch(
   gap: 0.7rem;
 }
 
-.ticket-card__top small,
 .gateway-card__top small,
 .verification-card__top small {
   color: var(--color-carbon-black-500);
 }
 
-.ticket-card__top h4,
 .gateway-card__top h3,
 .verification-card__top h3 {
   margin: 0.15rem 0 0;
   color: var(--color-carbon-black-900);
 }
 
-.ticket-card p,
+.ticket-row__main p,
 .verification-card p {
   margin: 0;
   color: var(--color-carbon-black-700);
@@ -599,6 +589,25 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.ticket-row__meta {
+  flex: 0 0 auto;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.ticket-row__meta small {
+  color: var(--color-carbon-black-500);
+  text-align: right;
+}
+
+.ticket-list__actions {
+  display: flex;
+  justify-content: center;
 }
 
 .gateway-card__meta {
@@ -704,6 +713,19 @@ watch(
 @media (max-width: 900px) {
   .ops-columns {
     grid-template-columns: 1fr;
+  }
+
+  .ticket-row {
+    flex-direction: column;
+  }
+
+  .ticket-row__meta {
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .ticket-row__meta small {
+    text-align: left;
   }
 }
 </style>

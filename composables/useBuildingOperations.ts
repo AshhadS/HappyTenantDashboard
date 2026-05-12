@@ -4,6 +4,8 @@ import type {
   BuildingOperationsHubData,
   BuildingOperationsSensor,
   BuildingOperationsSummary,
+  BuildingOperationsTicketDetail,
+  BuildingOperationsTicketTimelineEvent,
   BuildingOperationsTicket,
   DeviceHealthPanel
 } from '~/types/buildingOperations'
@@ -30,6 +32,14 @@ const toNumber = (value: unknown, fallback = 0) => {
 }
 
 const asString = (value: unknown) => (value == null ? null : String(value))
+
+const asObject = (value: unknown) => {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  return value as Record<string, unknown>
+}
 
 const buildHeaders = (anonKey: string, accessToken: string) => ({
   apikey: anonKey,
@@ -130,6 +140,13 @@ const normalizeVerificationEvent = (row: Record<string, unknown>): TicketVerific
         iot_gateway: null
       }
     : null
+})
+
+const normalizeTimelineEvent = (row: Record<string, unknown>): BuildingOperationsTicketTimelineEvent => ({
+  id: String(row.id || ''),
+  eventType: String(row.event_type || ''),
+  createdAt: asString(row.created_at),
+  metadata: asObject(row.metadata)
 })
 
 export const useBuildingOperations = () => {
@@ -562,10 +579,160 @@ export const useBuildingOperations = () => {
     }
   }
 
+  const fetchTicketDetail = async (
+    accessToken: string,
+    role: string,
+    userId: string,
+    buildingId: string,
+    ticketId: string
+  ): Promise<{ data: BuildingOperationsTicketDetail | null; error: string | null }> => {
+    const configError = getConfigError()
+    if (configError) {
+      return { data: null, error: configError }
+    }
+
+    if (!ticketId) {
+      return { data: null, error: 'Ticket id is required.' }
+    }
+
+    const accessResult = await fetchAccessibleBuildings(accessToken, role, userId)
+    if (accessResult.error) {
+      return { data: null, error: accessResult.error }
+    }
+
+    const buildingAccess = accessResult.data.find((item) => item.buildingId === buildingId)
+    if (!buildingAccess) {
+      return { data: null, error: 'You do not have access to this building.' }
+    }
+
+    try {
+      const headers = buildHeaders(supabaseAnonKey, accessToken)
+
+      const [ticketRows, verificationRows, timelineRows] = await Promise.all([
+        $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/support_ticket`, {
+          method: 'GET',
+          query: {
+            select: 'id,title,description,status,photo_url,created_at,updated_at,source,linked_iot_incident_id,verification_status,tenant:tenant_id(id,full_name,unit_number,floor,phone,watchman_id)',
+            id: `eq.${ticketId}`,
+            limit: 1
+          },
+          headers
+        }),
+        $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/ticket_verification_event`, {
+          method: 'GET',
+          query: {
+            select: '*,iot_device(*)',
+            ticket_id: `eq.${ticketId}`,
+            order: 'created_at.desc',
+            limit: 30
+          },
+          headers
+        }),
+        $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/support_ticket_events`, {
+          method: 'GET',
+          query: {
+            select: 'id,event_type,created_at,metadata',
+            ticket_id: `eq.${ticketId}`,
+            order: 'created_at.asc',
+            limit: 50
+          },
+          headers
+        })
+      ])
+
+      const ticketRow = ticketRows?.[0]
+      if (!ticketRow) {
+        return { data: null, error: 'Ticket not found.' }
+      }
+
+      const ticketBuildingRows = await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/v_support_ticket_building`, {
+        method: 'GET',
+        query: {
+          select: 'ticket_id,building_id',
+          ticket_id: `eq.${ticketId}`,
+          limit: 1
+        },
+        headers
+      })
+
+      const resolvedBuildingId = String(ticketBuildingRows?.[0]?.building_id || '')
+      if (resolvedBuildingId !== buildingId) {
+        return { data: null, error: 'This ticket does not belong to the selected building.' }
+      }
+
+      const tenantRow = ticketRow.tenant as Record<string, unknown> | undefined
+      const watchmanId = asString(tenantRow?.watchman_id)
+
+      const watchmanRows = watchmanId
+        ? await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/watchman`, {
+            method: 'GET',
+            query: {
+              select: 'id,watchman_name',
+              id: `eq.${watchmanId}`,
+              limit: 1
+            },
+            headers
+          })
+        : []
+
+      const watchmanName = watchmanRows?.[0] ? String(watchmanRows[0].watchman_name || 'Unassigned') : 'Unassigned'
+      const linkedIncidentId = asString(ticketRow.linked_iot_incident_id)
+
+      const incidentRows = linkedIncidentId
+        ? await $fetch<Record<string, unknown>[]>(`${supabaseUrl}/rest/v1/iot_incident`, {
+            method: 'GET',
+            query: {
+              select: '*,iot_device(*,iot_gateway(*))',
+              id: `eq.${linkedIncidentId}`,
+              limit: 1
+            },
+            headers
+          })
+        : []
+
+      const linkedIncident = incidentRows?.[0] ? normalizeIncident(incidentRows[0]) : null
+
+      const detail: BuildingOperationsTicketDetail = {
+        id: String(ticketRow.id || ''),
+        title: String(ticketRow.title || 'Untitled ticket'),
+        description: asString(ticketRow.description),
+        status: asString(ticketRow.status),
+        createdAt: asString(ticketRow.created_at),
+        updatedAt: asString(ticketRow.updated_at),
+        source: asString(ticketRow.source),
+        linkedIotIncidentId: linkedIncidentId,
+        verificationStatus: asString(ticketRow.verification_status),
+        tenantName: asString(tenantRow?.full_name),
+        unitNumber: asString(tenantRow?.unit_number),
+        assignedWatchman: watchmanName,
+        linkedSensorName: linkedIncident?.iot_device?.device_name || linkedIncident?.iot_device?.sensor_code || null,
+        sensorLocation: linkedIncident?.iot_device?.location_label || null,
+        severity: linkedIncident?.severity || null,
+        buildingId,
+        buildingName: buildingAccess.buildingName,
+        photoUrl: asString(ticketRow.photo_url),
+        tenantPhone: asString(tenantRow?.phone),
+        tenantFloor: tenantRow?.floor == null ? null : toNumber(tenantRow.floor),
+        linkedIncident,
+        verificationEvents: (verificationRows || []).map(normalizeVerificationEvent),
+        timelineEvents: (timelineRows || []).map(normalizeTimelineEvent)
+      }
+
+      return { data: detail, error: null }
+    } catch (error) {
+      const err = error as { data?: SupabaseApiError; message?: string }
+      return {
+        data: null,
+        error: err?.data?.message ?? err?.data?.error_description ?? err?.message ?? 'Unable to load ticket details.'
+      }
+    }
+  }
+
   return {
     fetchAccessibleBuildings,
     fetchBuildingSummaries,
-    fetchBuildingOperationsHub
+    fetchBuildingOperationsHub,
+    fetchTicketDetail
   }
 }
 
